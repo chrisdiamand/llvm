@@ -57,6 +57,7 @@ namespace {
     llvm::Function &Func;
     llvm::LLVMContext &VMContext;
     std::map<Value *, std::string> TypeAssigns;
+    std::vector<CallInst *> InstructionsToRemove;
 
     void dumpTypeMap() {
       errs() << "Types:\n";
@@ -67,14 +68,18 @@ namespace {
     }
 
     void handleCrunchSizeofCall(CallInst *I) {
-      auto Arg0 = cast<ConstantDataArray>(I->getArgOperand(0));
-      std::string Type = Arg0->getAsString();
-      assert(TypeAssigns.find(I) == TypeAssigns.end());
-      TypeAssigns[I] = Type;
+      /* Replace the call instruction with its second argument. We can't
+       * actually remove it here though since the iterator gets confused. */
+      Value *SizeArg = I->getArgOperand(1);
+      I->replaceAllUsesWith(SizeArg);
+      InstructionsToRemove.push_back(I);
 
-      // TODO: Replace the call instruction with its first argument.
-      Value *Arg1 = I->getArgOperand(1);
-      Arg1->dump();
+      /* Now associate the type with the size argument. We don't need to
+       * associate the CallInstr as well, since we've removed it. */
+      auto TypeArg = cast<ConstantDataArray>(I->getArgOperand(0));
+      std::string Type = TypeArg->getAsString();
+      assert(TypeAssigns.find(SizeArg) == TypeAssigns.end());
+      TypeAssigns[SizeArg] = Type;
     }
 
     bool isAllocationFunction(llvm::Function *F) {
@@ -173,6 +178,12 @@ namespace {
            it != BBList.end(); ++it) {
         ret = runOnBasicBlock(*it) | ret;
       }
+
+      for (auto it = InstructionsToRemove.begin();
+           it != InstructionsToRemove.end(); ++it) {
+        (*it)->eraseFromParent();
+      }
+
       return ret;
     }
 
