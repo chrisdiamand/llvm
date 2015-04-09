@@ -8,11 +8,49 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <limits.h>
+#include <stdlib.h>
+
+#include <fstream>
+#include <iostream>
+#include <map>
+
 using namespace llvm;
 
 #define DEBUG_TYPE "crunch"
 
 namespace {
+
+  static std::string getOutputFName(const std::string &SrcPath) {
+    std::string ExtRemoved = SrcPath.substr(0, SrcPath.length() - 2);
+    return ExtRemoved + ".i.allocs";
+  }
+
+  static std::ofstream *openOutputFile(const std::string &FileName) {
+    static std::map<std::string, std::ofstream *> OpenFiles;
+
+    // FIXME: Where do these get closed?
+    if (OpenFiles.find(FileName) == OpenFiles.end()) {
+      OpenFiles[FileName] = new std::ofstream(FileName,
+                                              std::ios::out | std::ios::trunc);
+    }
+    return OpenFiles[FileName];
+  }
+
+  static void emitAllocSite(const std::string &SourcePath, unsigned Line,
+                            const std::string &FunName, const std::string &Type)
+  {
+    std::string SitesFileName = getOutputFName(SourcePath);
+    std::ofstream &Out = *openOutputFile(SitesFileName);
+
+    char *SourceRealPath = realpath(SourcePath.c_str(), NULL);
+
+    Out << SourceRealPath << "\t" << Line << "\t" << FunName;
+    Out << "\t__uniqtype__" << Type << std::endl;
+
+    free(SourceRealPath);
+  }
 
   class FunctionHandler {
   private:
@@ -31,7 +69,6 @@ namespace {
     void handleCrunchSizeofCall(CallInst *I) {
       auto Arg0 = cast<ConstantDataArray>(I->getArgOperand(0));
       std::string Type = Arg0->getAsString();
-      errs() << "Type: '" << Type << "'\n";
       assert(TypeAssigns.find(I) == TypeAssigns.end());
       TypeAssigns[I] = Type;
 
@@ -49,9 +86,7 @@ namespace {
 
     void handleAllocation(CallInst *I) {
       llvm::Value *SizeArg = I->getArgOperand(0);
-      errs() << "ALloc: " << SizeArg << "\n";
-      I->dump();
-      SizeArg->dump();
+
       if (TypeAssigns.find(SizeArg) == TypeAssigns.end()) {
         VMContext.diagnose(DiagnosticInfoInlineAsm::DiagnosticInfoInlineAsm(
           *I, "Could not infer type from allocation site", DS_Warning));
@@ -61,7 +96,6 @@ namespace {
       Function *CalledFun = I->getCalledFunction();
 
       std::string Uniqtype = TypeAssigns[SizeArg];
-      errs() << "Allocation! type " << Uniqtype << "\n";
 
       auto DebugLoc = I->getDebugLoc();
       if (!DebugLoc) {
@@ -69,11 +103,10 @@ namespace {
                << "Debug info not available.\n";
         return;
       }
-      DebugLoc->dump();
+
       unsigned line = DebugLoc->getLine();
       const std::string File = DebugLoc->getScope()->getFile()->getFilename();
-      errs() << File << "\t" << line << "\t" << CalledFun->getName();
-      errs() << "\t__uniqtype__" << Uniqtype << "\n";
+      emitAllocSite(File, line, CalledFun->getName(), Uniqtype);
     }
 
     bool runOnCallInst(CallInst *I) {
@@ -100,21 +133,16 @@ namespace {
         TypeAssigns[Dst] = TypeAssigns[I] = TypeAssigns[Src];
       }
 
-      errs() << "After store instruction:";
-      I->dump();
-      dumpTypeMap();
-
       return false;
     }
 
     bool runOnLoadInst(LoadInst *I) {
       Value *Src = I->getPointerOperand();
+
       if (TypeAssigns.find(Src) != TypeAssigns.end()) {
         TypeAssigns[I] = TypeAssigns[Src];
       }
-      errs() << "After load instruction:";
-      I->dump();
-      dumpTypeMap();
+
       return false;
     }
 
@@ -165,7 +193,8 @@ namespace {
       AU.setPreservesAll();
     }
   };
-}
+
+} // namespace
 
 char Crunch::ID = 0;
 static RegisterPass<Crunch> X("crunch", "Libcrunch stuff");
