@@ -6,7 +6,7 @@
 #include <string.h>
 #include <string>
 
-#include "AllocFunction.h"
+#include "llvm/Transforms/AllocSites/AllocFunction.h"
 
 namespace Crunch {
 

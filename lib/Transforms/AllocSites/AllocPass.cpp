@@ -8,6 +8,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/AllocSites/AllocFunction.h"
 #include "llvm/Transforms/AllocSites/AllocSites.h"
 #include "llvm/Transforms/AllocSites/Composite.h"
 
@@ -99,23 +100,23 @@ private:
   }
 
   bool isAllocationFunction(llvm::Function *F) {
-    if (F->getName() == "malloc") {
-      return true;
-    }
-    return false;
+    std::string Name = F->getName();
+    return Crunch::AllocFunction::get(Name) != nullptr;
   }
 
   void handleAllocation(CallInst *I) {
-    llvm::Value *SizeArg = I->getArgOperand(0);
+    Function *CalledFun = getActualCalledFunction(I->getCalledValue());
+    auto AllocFun = Crunch::AllocFunction::get(CalledFun->getName());
+
+    unsigned SizeArgIndex = AllocFun->getSizeArg();
+    assert(SizeArgIndex < I->getNumArgOperands());
+    llvm::Value *SizeArg = I->getArgOperand(SizeArgIndex);
 
     if (TypeAssigns.find(SizeArg) == TypeAssigns.end()) {
       VMContext.diagnose(DiagnosticInfoInlineAsm::DiagnosticInfoInlineAsm(
         *I, "Could not infer type from allocation site", DS_Warning));
       return;
     }
-
-    Function *CalledFun = I->getCalledFunction();
-
     std::string Uniqtype = TypeAssigns[SizeArg];
 
     auto DebugLoc = I->getDebugLoc();
