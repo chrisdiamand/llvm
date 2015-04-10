@@ -1,4 +1,4 @@
-;===- ./lib/Transforms/Scalar/LLVMBuild.txt --------------------*- Conf -*--===;
+;===- ./lib/Transforms/Crunch/LLVMBuild.txt --------------------*- Conf -*--===;
 ;
 ;                     The LLVM Compiler Infrastructure
 ;
@@ -19,5 +19,4 @@
 type = Library
 name = Crunch
 parent = Transforms
-library_name = CrunchOpts
 required_libraries = Analysis Core TransformUtils

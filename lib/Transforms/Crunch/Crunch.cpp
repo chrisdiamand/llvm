@@ -1,13 +1,14 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/Constants.h"
-#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Crunch.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -206,6 +207,10 @@ namespace {
   };
 
 } // namespace
+
+llvm::FunctionPass *llvm::createCrunchSanitizerPass() {
+  return new Crunch();
+}
 
 char Crunch::ID = 0;
 static RegisterPass<Crunch> X("crunch", "Libcrunch stuff");
