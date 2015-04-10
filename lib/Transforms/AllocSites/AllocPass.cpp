@@ -72,7 +72,13 @@ private:
     /* Replace the call instruction with its second argument. We can't
      * actually remove it here though since the iterator gets confused. */
     Value *SizeArg = I->getArgOperand(1);
-    I->replaceAllUsesWith(SizeArg);
+    auto UniqueSize = llvm::BinaryOperator::Create(
+                        Instruction::Add,
+                        SizeArg,
+                        llvm::ConstantInt::get(SizeArg->getType(), 0),
+                        "sizeof", I);
+
+    I->replaceAllUsesWith(UniqueSize);
     InstructionsToRemove.push_back(I);
 
     /* Now associate the type with the size argument. We don't need to
@@ -80,7 +86,7 @@ private:
     auto TypeArg = cast<ConstantDataArray>(I->getArgOperand(0));
     std::string Type = TypeArg->getAsString();
     assert(TypeAssigns.find(SizeArg) == TypeAssigns.end());
-    TypeAssigns[SizeArg] = Type;
+    TypeAssigns[UniqueSize] = Type;
   }
 
   bool isAllocationFunction(llvm::Function *F) {
