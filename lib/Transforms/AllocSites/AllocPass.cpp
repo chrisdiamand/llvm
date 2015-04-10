@@ -9,6 +9,7 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/AllocSites.h"
+#include "llvm/Transforms/AllocSites/Composite.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -68,6 +69,15 @@ private:
     }
   }
 
+  bool hasType(llvm::Value *Key) {
+    return TypeAssigns.find(Key) != TypeAssigns.end();
+  }
+
+  void setType(llvm::Value *Key, std::string Val) {
+    assert(!hasType(Key));
+    TypeAssigns[Key] = Val;
+  }
+
   void handleCrunchSizeofCall(CallInst *I) {
     /* Replace the call instruction with its second argument. We can't
      * actually remove it here though since the iterator gets confused. */
@@ -85,8 +95,7 @@ private:
      * associate the CallInstr as well, since we've removed it. */
     auto TypeArg = cast<ConstantDataArray>(I->getArgOperand(0));
     std::string Type = TypeArg->getAsString();
-    assert(TypeAssigns.find(SizeArg) == TypeAssigns.end());
-    TypeAssigns[UniqueSize] = Type;
+    setType(UniqueSize, Type);
   }
 
   bool isAllocationFunction(llvm::Function *F) {
@@ -175,6 +184,30 @@ private:
     return false;
   }
 
+  bool runOnBinaryOperator(llvm::BinaryOperator *I) {
+    assert(I->getNumOperands() == 2);
+    llvm::Value *V1 = I->getOperand(0);
+    llvm::Value *V2 = I->getOperand(1);
+
+    switch (I->getOpcode()) {
+      case Instruction::Add:
+      case Instruction::Mul:
+        if (hasType(V1) && !hasType(V2)) {
+          setType(I, TypeAssigns[V1]);
+        } else if (!hasType(V1) && hasType(V2)) {
+          setType(I, TypeAssigns[V2]);
+        } else if (hasType(V1) && hasType(V2)) {
+          if (I->getOpcode() == Instruction::Mul) {
+            setType(I, Composite::mul(TypeAssigns[V1], TypeAssigns[V2]));
+          } else {
+            setType(I, Composite::add(TypeAssigns[V1], TypeAssigns[V2]));
+          }
+        }
+        break;
+    }
+    return false;
+  }
+
   bool runOnInstruction(Instruction *I) {
     if (auto CallI = dyn_cast<CallInst>(I)) {
       return runOnCallInst(CallI);
@@ -182,6 +215,8 @@ private:
       return runOnStoreInst(StoreI);
     } else if (auto LoadI = dyn_cast<LoadInst>(I)) {
       return runOnLoadInst(LoadI);
+    } else if (auto BinI = dyn_cast<BinaryOperator>(I)) {
+      return runOnBinaryOperator(BinI);
     }
     return false;
   }
