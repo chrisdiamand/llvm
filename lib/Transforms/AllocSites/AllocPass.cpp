@@ -41,15 +41,25 @@ static std::ofstream *openOutputFile(const std::string &FileName) {
   return OpenFiles[FileName];
 }
 
-static void emitAllocSite(const std::string &SourcePath, unsigned Line,
-                          const std::string &FunName, const std::string &Type)
+static void emitAllocSite(llvm::Instruction *I, std::string Name,
+                          std::string Type)
 {
+  auto Loc = I->getDebugLoc();
+  if (!Loc) {
+    errs() << "Warning: Cannot find allocation site: "
+           << "Debug info not available.\n";
+    return;
+  }
+
+  unsigned Line = Loc->getLine();
+  const std::string SourcePath = Loc->getScope()->getFile()->getFilename();
+
   std::string SitesFileName = getOutputFName(SourcePath);
   std::ofstream &Out = *openOutputFile(SitesFileName);
 
   char *SourceRealPath = realpath(SourcePath.c_str(), NULL);
 
-  Out << SourceRealPath << "\t" << Line << "\t" << FunName;
+  Out << SourceRealPath << "\t" << Line << "\t" << Name;
   Out << "\t__uniqtype__" << Type << std::endl;
 
   free(SourceRealPath);
@@ -138,19 +148,7 @@ private:
         *I, "Could not infer type from allocation site", DS_Warning));
       return true;
     }
-    std::string Uniqtype = TypeAssigns[SizeArg];
-
-    auto DebugLoc = I->getDebugLoc();
-    if (!DebugLoc) {
-      errs() << "Warning: Cannot find allocation site: "
-             << "Debug info not available.\n";
-      return true;
-    }
-
-    unsigned line = DebugLoc->getLine();
-    const std::string File = DebugLoc->getScope()->getFile()->getFilename();
-    emitAllocSite(File, line, AllocFun->getName(), Uniqtype);
-
+    emitAllocSite(I, AllocFun->getName(), TypeAssigns[SizeArg]);
     return true;
   }
 
@@ -238,6 +236,14 @@ private:
     return false;
   }
 
+  bool runOnAllocaInst(llvm::AllocaInst *I) {
+    Value *Arg = I->getArraySize();
+    if (hasType(Arg)) {
+      emitAllocSite(I, "__builtin_alloca", TypeAssigns[Arg]);
+    }
+    return false;
+  }
+
   bool runOnInstruction(Instruction *I) {
     if (auto CallI = dyn_cast<CallInst>(I)) {
       return runOnCallInst(CallI);
@@ -247,6 +253,8 @@ private:
       return runOnLoadInst(LoadI);
     } else if (auto BinI = dyn_cast<BinaryOperator>(I)) {
       return runOnBinaryOperator(BinI);
+    } else if (auto AllocaI = dyn_cast<AllocaInst>(I)) {
+      return runOnAllocaInst(AllocaI);
     }
     return false;
   }
