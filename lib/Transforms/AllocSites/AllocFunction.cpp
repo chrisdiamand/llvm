@@ -67,7 +67,6 @@ void AllocFunction::addFromEnvironment(const std::string &EnvVar) {
   char *Token = strtok_r(EnvValue, " \t,", &saveptr);
   while (Token != NULL) {
     std::string Descr(Token);
-    std::cout << "!!!!!" << Descr << "\n";
     add(Descr);
     Token = strtok_r(NULL, " \t,", &saveptr);
   }
