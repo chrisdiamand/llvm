@@ -16,7 +16,7 @@
 ;===------------------------------------------------------------------------===;
 
 [common]
-subdirectories = IPO InstCombine Instrumentation Scalar Utils Vectorize ObjCARC Crunch
+subdirectories = IPO InstCombine Instrumentation Scalar Utils Vectorize ObjCARC AllocSites
 
 [component_0]
 type = Group

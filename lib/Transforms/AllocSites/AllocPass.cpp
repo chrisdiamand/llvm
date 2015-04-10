@@ -8,7 +8,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Crunch.h"
+#include "llvm/Transforms/AllocSites.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -192,9 +192,9 @@ namespace {
       Func(F), VMContext(F.getContext()) {};
   };
 
-  struct Crunch : public FunctionPass {
+  struct AllocSitesPass : public FunctionPass {
     static char ID; // Pass identification, replacement for typeid
-    Crunch() : FunctionPass(ID) {}
+    AllocSitesPass() : FunctionPass(ID) {}
 
     bool runOnFunction(Function &F) override {
       FunctionHandler Handler(F);
@@ -208,9 +208,9 @@ namespace {
 
 } // namespace
 
-llvm::FunctionPass *llvm::createCrunchSanitizerPass() {
-  return new Crunch();
+llvm::FunctionPass *llvm::createAllocSitesSanitizerPass() {
+  return new AllocSitesPass();
 }
 
-char Crunch::ID = 0;
-static RegisterPass<Crunch> X("crunch", "Libcrunch stuff");
+char AllocSitesPass::ID = 0;
+static RegisterPass<AllocSitesPass> X("allocs", "Dump allocation sites");

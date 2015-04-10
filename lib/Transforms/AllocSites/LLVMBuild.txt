@@ -17,6 +17,6 @@
 
 [component_0]
 type = Library
-name = Crunch
+name = AllocSites
 parent = Transforms
 required_libraries = Analysis Core TransformUtils

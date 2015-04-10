@@ -1,10 +1,10 @@
 set(LLVM_LINK_COMPONENTS
   ${LLVM_TARGETS_TO_BUILD}
+  AllocSites
   Analysis
   BitWriter
   CodeGen
   Core
-  Crunch
   IPA
   IPO
   IRReader

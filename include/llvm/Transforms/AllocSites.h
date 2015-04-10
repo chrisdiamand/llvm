@@ -4,7 +4,7 @@
 #include "llvm/Pass.h"
 
 namespace llvm {
-  llvm::FunctionPass *createCrunchSanitizerPass();
+  llvm::FunctionPass *createAllocSitesSanitizerPass();
 }
 
 #endif // LLVM_TRANSFORMS_CRUNCH_H
