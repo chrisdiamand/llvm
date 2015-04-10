@@ -60,12 +60,21 @@ private:
   llvm::Function &Func;
   llvm::LLVMContext &VMContext;
   std::map<Value *, std::string> TypeAssigns;
+  std::map<Value *, Crunch::AllocFunction *> AllocAssigns;
   std::vector<CallInst *> InstructionsToRemove;
 
   void dumpTypeMap() {
     errs() << "Types:\n";
     for (auto it = TypeAssigns.begin(); it != TypeAssigns.end(); ++it) {
       errs() << "  " << it->second << ": ";
+      it->first->dump();
+    }
+  }
+
+  void dumpAllocMap() {
+    errs() << "Allocs:\n";
+    for (auto it = AllocAssigns.begin(); it != AllocAssigns.end(); ++it) {
+      errs() << "  " << it->second->getName() << ": ";
       it->first->dump();
     }
   }
@@ -99,14 +108,26 @@ private:
     setType(UniqueSize, Type);
   }
 
-  bool isAllocationFunction(llvm::Function *F) {
-    std::string Name = F->getName();
-    return Crunch::AllocFunction::get(Name) != nullptr;
+  Crunch::AllocFunction *getAllocationFunction(llvm::Value *V) {
+
+    if (V != nullptr && AllocAssigns.find(V) != AllocAssigns.end()) {
+      return AllocAssigns[V];
+    }
+
+    if (auto F = getActualCalledFunction(V)) {
+      std::string Name = F->getName();
+      return Crunch::AllocFunction::get(Name);
+    }
+
+    return nullptr;
   }
 
-  void handleAllocation(CallInst *I) {
-    Function *CalledFun = getActualCalledFunction(I->getCalledValue());
-    auto AllocFun = Crunch::AllocFunction::get(CalledFun->getName());
+  bool handleAllocation(CallInst *I) {
+    auto AllocFun = getAllocationFunction(I->getCalledValue());
+    if (AllocFun == NULL) {
+      // Not an allocation function so did nothing; return false.
+      return false;
+    }
 
     unsigned SizeArgIndex = AllocFun->getSizeArg();
     assert(SizeArgIndex < I->getNumArgOperands());
@@ -115,7 +136,7 @@ private:
     if (TypeAssigns.find(SizeArg) == TypeAssigns.end()) {
       VMContext.diagnose(DiagnosticInfoInlineAsm::DiagnosticInfoInlineAsm(
         *I, "Could not infer type from allocation site", DS_Warning));
-      return;
+      return true;
     }
     std::string Uniqtype = TypeAssigns[SizeArg];
 
@@ -123,12 +144,14 @@ private:
     if (!DebugLoc) {
       errs() << "Warning: Cannot find allocation site: "
              << "Debug info not available.\n";
-      return;
+      return true;
     }
 
     unsigned line = DebugLoc->getLine();
     const std::string File = DebugLoc->getScope()->getFile()->getFilename();
-    emitAllocSite(File, line, CalledFun->getName(), Uniqtype);
+    emitAllocSite(File, line, AllocFun->getName(), Uniqtype);
+
+    return true;
   }
 
   // Sometimes the sizeof marker function is surrounded by a bitcast.
@@ -150,15 +173,13 @@ private:
   bool runOnCallInst(CallInst *I) {
     Function *CalledFun = getActualCalledFunction(I->getCalledValue());
 
-    if (CalledFun == nullptr) // Indirect call
+    if (handleAllocation(I)) {
       return false;
 
-    if (CalledFun->getName() == "__crunch_sizeof__") {
+    } else if (CalledFun != nullptr &&
+               CalledFun->getName() == "__crunch_sizeof__") {
       handleCrunchSizeofCall(I);
       return true;
-    } else if (isAllocationFunction(CalledFun)) {
-      handleAllocation(I);
-      return false;
     }
 
     return false;
@@ -172,6 +193,10 @@ private:
       TypeAssigns[Dst] = TypeAssigns[I] = TypeAssigns[Src];
     }
 
+    if (auto AF = getAllocationFunction(Src)) {
+      AllocAssigns[Dst] = AllocAssigns[Src] = AF;
+    }
+
     return false;
   }
 
@@ -180,6 +205,10 @@ private:
 
     if (TypeAssigns.find(Src) != TypeAssigns.end()) {
       TypeAssigns[I] = TypeAssigns[Src];
+    }
+
+    if (auto AF = getAllocationFunction(Src)) {
+      AllocAssigns[I] = AF;
     }
 
     return false;

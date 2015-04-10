@@ -43,6 +43,10 @@ AllocFunction::AllocFunction(const std::string &Descr) {
   parseDescr(Descr);
 }
 
+std::string AllocFunction::getName() {
+  return Name;
+}
+
 void AllocFunction::add(const std::string &Descr) {
   AllocFunction *AF = new AllocFunction(Descr);
   if (AF->valid) {

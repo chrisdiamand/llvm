@@ -22,6 +22,8 @@ private:
 
 public:
   unsigned int getSizeArg();
+  std::string getName();
+
   static AllocFunction *get(const std::string &);
 };
 
