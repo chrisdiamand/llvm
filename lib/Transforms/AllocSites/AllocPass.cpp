@@ -8,7 +8,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/AllocSites.h"
+#include "llvm/Transforms/AllocSites/AllocSites.h"
 #include "llvm/Transforms/AllocSites/Composite.h"
 
 #include <limits.h>
