@@ -121,8 +121,25 @@ private:
     emitAllocSite(File, line, CalledFun->getName(), Uniqtype);
   }
 
+  // Sometimes the sizeof marker function is surrounded by a bitcast.
+  llvm::Function *getActualCalledFunction(llvm::Value *I) {
+    if (auto Fun = dyn_cast<llvm::Function>(I)) {
+      return Fun;
+    }
+
+    if (auto Usr = dyn_cast<llvm::User>(I)) {
+      for (auto it = Usr->op_begin(); it != Usr->op_end(); ++it) {
+        if (auto Ret = getActualCalledFunction(*it)) {
+          return Ret;
+        }
+      }
+    }
+    return nullptr;
+  }
+
   bool runOnCallInst(CallInst *I) {
-    Function *CalledFun = I->getCalledFunction();
+    Function *CalledFun = getActualCalledFunction(I->getCalledValue());
+
     if (CalledFun == nullptr) // Indirect call
       return false;
 
