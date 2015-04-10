@@ -23,188 +23,188 @@ using namespace llvm;
 
 namespace {
 
-  static std::string getOutputFName(const std::string &SrcPath) {
-    std::string ExtRemoved = SrcPath.substr(0, SrcPath.length() - 2);
-    return ExtRemoved + ".i.allocs";
+static std::string getOutputFName(const std::string &SrcPath) {
+  std::string ExtRemoved = SrcPath.substr(0, SrcPath.length() - 2);
+  return ExtRemoved + ".i.allocs";
+}
+
+static std::ofstream *openOutputFile(const std::string &FileName) {
+  static std::map<std::string, std::ofstream *> OpenFiles;
+
+  // FIXME: Where do these get closed?
+  if (OpenFiles.find(FileName) == OpenFiles.end()) {
+    OpenFiles[FileName] = new std::ofstream(FileName,
+                                            std::ios::out | std::ios::trunc);
+  }
+  return OpenFiles[FileName];
+}
+
+static void emitAllocSite(const std::string &SourcePath, unsigned Line,
+                          const std::string &FunName, const std::string &Type)
+{
+  std::string SitesFileName = getOutputFName(SourcePath);
+  std::ofstream &Out = *openOutputFile(SitesFileName);
+
+  char *SourceRealPath = realpath(SourcePath.c_str(), NULL);
+
+  Out << SourceRealPath << "\t" << Line << "\t" << FunName;
+  Out << "\t__uniqtype__" << Type << std::endl;
+
+  free(SourceRealPath);
+}
+
+class FunctionHandler {
+private:
+  llvm::Function &Func;
+  llvm::LLVMContext &VMContext;
+  std::map<Value *, std::string> TypeAssigns;
+  std::vector<CallInst *> InstructionsToRemove;
+
+  void dumpTypeMap() {
+    errs() << "Types:\n";
+    for (auto it = TypeAssigns.begin(); it != TypeAssigns.end(); ++it) {
+      errs() << "  " << it->second << ": ";
+      it->first->dump();
+    }
   }
 
-  static std::ofstream *openOutputFile(const std::string &FileName) {
-    static std::map<std::string, std::ofstream *> OpenFiles;
+  void handleCrunchSizeofCall(CallInst *I) {
+    /* Replace the call instruction with its second argument. We can't
+     * actually remove it here though since the iterator gets confused. */
+    Value *SizeArg = I->getArgOperand(1);
+    I->replaceAllUsesWith(SizeArg);
+    InstructionsToRemove.push_back(I);
 
-    // FIXME: Where do these get closed?
-    if (OpenFiles.find(FileName) == OpenFiles.end()) {
-      OpenFiles[FileName] = new std::ofstream(FileName,
-                                              std::ios::out | std::ios::trunc);
-    }
-    return OpenFiles[FileName];
+    /* Now associate the type with the size argument. We don't need to
+     * associate the CallInstr as well, since we've removed it. */
+    auto TypeArg = cast<ConstantDataArray>(I->getArgOperand(0));
+    std::string Type = TypeArg->getAsString();
+    assert(TypeAssigns.find(SizeArg) == TypeAssigns.end());
+    TypeAssigns[SizeArg] = Type;
   }
 
-  static void emitAllocSite(const std::string &SourcePath, unsigned Line,
-                            const std::string &FunName, const std::string &Type)
-  {
-    std::string SitesFileName = getOutputFName(SourcePath);
-    std::ofstream &Out = *openOutputFile(SitesFileName);
-
-    char *SourceRealPath = realpath(SourcePath.c_str(), NULL);
-
-    Out << SourceRealPath << "\t" << Line << "\t" << FunName;
-    Out << "\t__uniqtype__" << Type << std::endl;
-
-    free(SourceRealPath);
+  bool isAllocationFunction(llvm::Function *F) {
+    if (F->getName() == "malloc") {
+      return true;
+    }
+    return false;
   }
 
-  class FunctionHandler {
-  private:
-    llvm::Function &Func;
-    llvm::LLVMContext &VMContext;
-    std::map<Value *, std::string> TypeAssigns;
-    std::vector<CallInst *> InstructionsToRemove;
+  void handleAllocation(CallInst *I) {
+    llvm::Value *SizeArg = I->getArgOperand(0);
 
-    void dumpTypeMap() {
-      errs() << "Types:\n";
-      for (auto it = TypeAssigns.begin(); it != TypeAssigns.end(); ++it) {
-        errs() << "  " << it->second << ": ";
-        it->first->dump();
-      }
+    if (TypeAssigns.find(SizeArg) == TypeAssigns.end()) {
+      VMContext.diagnose(DiagnosticInfoInlineAsm::DiagnosticInfoInlineAsm(
+        *I, "Could not infer type from allocation site", DS_Warning));
+      return;
     }
 
-    void handleCrunchSizeofCall(CallInst *I) {
-      /* Replace the call instruction with its second argument. We can't
-       * actually remove it here though since the iterator gets confused. */
-      Value *SizeArg = I->getArgOperand(1);
-      I->replaceAllUsesWith(SizeArg);
-      InstructionsToRemove.push_back(I);
+    Function *CalledFun = I->getCalledFunction();
 
-      /* Now associate the type with the size argument. We don't need to
-       * associate the CallInstr as well, since we've removed it. */
-      auto TypeArg = cast<ConstantDataArray>(I->getArgOperand(0));
-      std::string Type = TypeArg->getAsString();
-      assert(TypeAssigns.find(SizeArg) == TypeAssigns.end());
-      TypeAssigns[SizeArg] = Type;
+    std::string Uniqtype = TypeAssigns[SizeArg];
+
+    auto DebugLoc = I->getDebugLoc();
+    if (!DebugLoc) {
+      errs() << "Warning: Cannot find allocation site: "
+             << "Debug info not available.\n";
+      return;
     }
 
-    bool isAllocationFunction(llvm::Function *F) {
-      if (F->getName() == "malloc") {
-        return true;
-      }
+    unsigned line = DebugLoc->getLine();
+    const std::string File = DebugLoc->getScope()->getFile()->getFilename();
+    emitAllocSite(File, line, CalledFun->getName(), Uniqtype);
+  }
+
+  bool runOnCallInst(CallInst *I) {
+    Function *CalledFun = I->getCalledFunction();
+    if (CalledFun == nullptr) // Indirect call
+      return false;
+
+    if (CalledFun->getName() == "__crunch_sizeof__") {
+      handleCrunchSizeofCall(I);
+      return true;
+    } else if (isAllocationFunction(CalledFun)) {
+      handleAllocation(I);
       return false;
     }
 
-    void handleAllocation(CallInst *I) {
-      llvm::Value *SizeArg = I->getArgOperand(0);
+    return false;
+  }
 
-      if (TypeAssigns.find(SizeArg) == TypeAssigns.end()) {
-        VMContext.diagnose(DiagnosticInfoInlineAsm::DiagnosticInfoInlineAsm(
-          *I, "Could not infer type from allocation site", DS_Warning));
-        return;
-      }
+  bool runOnStoreInst(StoreInst *I) {
+    Value *Src = I->getValueOperand();
+    Value *Dst = I->getPointerOperand();
 
-      Function *CalledFun = I->getCalledFunction();
-
-      std::string Uniqtype = TypeAssigns[SizeArg];
-
-      auto DebugLoc = I->getDebugLoc();
-      if (!DebugLoc) {
-        errs() << "Warning: Cannot find allocation site: "
-               << "Debug info not available.\n";
-        return;
-      }
-
-      unsigned line = DebugLoc->getLine();
-      const std::string File = DebugLoc->getScope()->getFile()->getFilename();
-      emitAllocSite(File, line, CalledFun->getName(), Uniqtype);
+    if (TypeAssigns.find(Src) != TypeAssigns.end()) {
+      TypeAssigns[Dst] = TypeAssigns[I] = TypeAssigns[Src];
     }
 
-    bool runOnCallInst(CallInst *I) {
-      Function *CalledFun = I->getCalledFunction();
-      if (CalledFun == nullptr) // Indirect call
-        return false;
+    return false;
+  }
 
-      if (CalledFun->getName() == "__crunch_sizeof__") {
-        handleCrunchSizeofCall(I);
-        return true;
-      } else if (isAllocationFunction(CalledFun)) {
-        handleAllocation(I);
-        return false;
-      }
+  bool runOnLoadInst(LoadInst *I) {
+    Value *Src = I->getPointerOperand();
 
-      return false;
+    if (TypeAssigns.find(Src) != TypeAssigns.end()) {
+      TypeAssigns[I] = TypeAssigns[Src];
     }
 
-    bool runOnStoreInst(StoreInst *I) {
-      Value *Src = I->getValueOperand();
-      Value *Dst = I->getPointerOperand();
+    return false;
+  }
 
-      if (TypeAssigns.find(Src) != TypeAssigns.end()) {
-        TypeAssigns[Dst] = TypeAssigns[I] = TypeAssigns[Src];
-      }
+  bool runOnInstruction(Instruction *I) {
+    if (auto CallI = dyn_cast<CallInst>(I)) {
+      return runOnCallInst(CallI);
+    } else if (auto StoreI = dyn_cast<StoreInst>(I)) {
+      return runOnStoreInst(StoreI);
+    } else if (auto LoadI = dyn_cast<LoadInst>(I)) {
+      return runOnLoadInst(LoadI);
+    }
+    return false;
+  }
 
-      return false;
+  bool runOnBasicBlock(BasicBlock &B) {
+    bool ret = false;
+    for (auto it = B.begin(); it != B.end(); ++it) {
+      ret = runOnInstruction(&(*it)) | ret;
+    }
+    return ret;
+  }
+
+public:
+  bool run() {
+    Function::BasicBlockListType &BBList = Func.getBasicBlockList();
+    bool ret = false;
+    for (auto it = BBList.begin();
+         it != BBList.end(); ++it) {
+      ret = runOnBasicBlock(*it) | ret;
     }
 
-    bool runOnLoadInst(LoadInst *I) {
-      Value *Src = I->getPointerOperand();
-
-      if (TypeAssigns.find(Src) != TypeAssigns.end()) {
-        TypeAssigns[I] = TypeAssigns[Src];
-      }
-
-      return false;
+    for (auto it = InstructionsToRemove.begin();
+         it != InstructionsToRemove.end(); ++it) {
+      (*it)->eraseFromParent();
     }
 
-    bool runOnInstruction(Instruction *I) {
-      if (auto CallI = dyn_cast<CallInst>(I)) {
-        return runOnCallInst(CallI);
-      } else if (auto StoreI = dyn_cast<StoreInst>(I)) {
-        return runOnStoreInst(StoreI);
-      } else if (auto LoadI = dyn_cast<LoadInst>(I)) {
-        return runOnLoadInst(LoadI);
-      }
-      return false;
-    }
+    return ret;
+  }
 
-    bool runOnBasicBlock(BasicBlock &B) {
-      bool ret = false;
-      for (auto it = B.begin(); it != B.end(); ++it) {
-        ret = runOnInstruction(&(*it)) | ret;
-      }
-      return ret;
-    }
+  FunctionHandler(Function &F) :
+    Func(F), VMContext(F.getContext()) {};
+};
 
-  public:
-    bool run() {
-      Function::BasicBlockListType &BBList = Func.getBasicBlockList();
-      bool ret = false;
-      for (auto it = BBList.begin();
-           it != BBList.end(); ++it) {
-        ret = runOnBasicBlock(*it) | ret;
-      }
+struct AllocSitesPass : public FunctionPass {
+  static char ID; // Pass identification, replacement for typeid
+  AllocSitesPass() : FunctionPass(ID) {}
 
-      for (auto it = InstructionsToRemove.begin();
-           it != InstructionsToRemove.end(); ++it) {
-        (*it)->eraseFromParent();
-      }
+  bool runOnFunction(Function &F) override {
+    FunctionHandler Handler(F);
+    return Handler.run();
+  }
 
-      return ret;
-    }
-
-    FunctionHandler(Function &F) :
-      Func(F), VMContext(F.getContext()) {};
-  };
-
-  struct AllocSitesPass : public FunctionPass {
-    static char ID; // Pass identification, replacement for typeid
-    AllocSitesPass() : FunctionPass(ID) {}
-
-    bool runOnFunction(Function &F) override {
-      FunctionHandler Handler(F);
-      return Handler.run();
-    }
-
-    void getAnalysisUsage(AnalysisUsage &AU) const override {
-      AU.setPreservesAll();
-    }
-  };
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
+    AU.setPreservesAll();
+  }
+};
 
 } // namespace
 
