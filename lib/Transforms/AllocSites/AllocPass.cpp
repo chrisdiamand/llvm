@@ -106,7 +106,8 @@ private:
                         Instruction::Add,
                         SizeArg,
                         llvm::ConstantInt::get(SizeArg->getType(), 0),
-                        "sizeof", I);
+                        "sizeof");
+    UniqueSize->insertAfter(I);
 
     I->replaceAllUsesWith(UniqueSize);
     InstructionsToRemove.push_back(I);
