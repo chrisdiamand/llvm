@@ -65,9 +65,9 @@ static void emitAllocSite(llvm::Instruction *I, std::string Name,
   free(SourceRealPath);
 }
 
-class FunctionHandler {
+class ModuleHandler {
 private:
-  llvm::Function &Func;
+  llvm::Module &TheModule;
   llvm::LLVMContext &VMContext;
   std::map<Value *, std::string> TypeAssigns;
   std::map<Value *, Crunch::AllocFunction *> AllocAssigns;
@@ -274,13 +274,25 @@ private:
     return ret;
   }
 
-public:
-  bool run() {
-    Function::BasicBlockListType &BBList = Func.getBasicBlockList();
+  bool runOnFunction(Function &Func) {
+    auto &BBList = Func.getBasicBlockList();
     bool ret = false;
     for (auto it = BBList.begin();
          it != BBList.end(); ++it) {
       ret = runOnBasicBlock(*it) | ret;
+    }
+
+    return ret;
+  }
+
+public:
+  bool run() {
+    bool ret = false;
+
+    //Module::FunctionListType &FunList = TheModule.getFunctionList();
+    auto &FunList = TheModule.getFunctionList();
+    for (auto it = FunList.begin(); it != FunList.end(); ++it) {
+      ret = runOnFunction(*it) | ret;
     }
 
     for (auto it = InstructionsToRemove.begin();
@@ -291,16 +303,16 @@ public:
     return ret;
   }
 
-  FunctionHandler(Function &F) :
-    Func(F), VMContext(F.getContext()) {};
+  ModuleHandler(Module &M) :
+    TheModule(M), VMContext(M.getContext()) {};
 };
 
-struct AllocSitesPass : public FunctionPass {
+struct AllocSitesPass : public ModulePass {
   static char ID; // Pass identification, replacement for typeid
-  AllocSitesPass() : FunctionPass(ID) {}
+  AllocSitesPass() : ModulePass(ID) {}
 
-  bool runOnFunction(Function &F) override {
-    FunctionHandler Handler(F);
+  bool runOnModule(Module &M) override {
+    ModuleHandler Handler(M);
     return Handler.run();
   }
 
@@ -311,7 +323,7 @@ struct AllocSitesPass : public FunctionPass {
 
 } // namespace
 
-llvm::FunctionPass *llvm::createAllocSitesSanitizerPass() {
+llvm::ModulePass *llvm::createAllocSitesSanitizerPass() {
   return new AllocSitesPass();
 }
 
