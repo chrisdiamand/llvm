@@ -144,12 +144,18 @@ private:
     assert(SizeArgIndex < I->getNumArgOperands());
     llvm::Value *SizeArg = I->getArgOperand(SizeArgIndex);
 
-    if (TypeAssigns.find(SizeArg) == TypeAssigns.end()) {
+    std::string UniqtypeName = "";
+
+    if (TypeAssigns.find(SizeArg) != TypeAssigns.end()) {
+      UniqtypeName = TypeAssigns[SizeArg];
+    } else {
       VMContext.diagnose(DiagnosticInfoInlineAsm::DiagnosticInfoInlineAsm(
         *I, "Could not infer type from allocation site", DS_Warning));
-      return true;
+      /* Emit a `void' type if we can't find it, since casts to this won't
+       * cause errors. */
+      UniqtypeName = "void";
     }
-    emitAllocSite(I, AllocFun->getName(), TypeAssigns[SizeArg]);
+    emitAllocSite(I, AllocFun->getName(), UniqtypeName);
     return true;
   }
 
