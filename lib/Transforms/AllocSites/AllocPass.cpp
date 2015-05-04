@@ -29,15 +29,22 @@ static std::string getOutputFName(const std::string &SrcPath) {
   return ExtRemoved + ".i.allocs";
 }
 
-static std::ofstream *openOutputFile(const std::string &FileName) {
-  static std::map<std::string, std::ofstream *> OpenFiles;
+static std::map<std::string, std::ofstream *> OpenFiles;
 
-  // FIXME: Where do these get closed?
+static std::ofstream *openOutputFile(const std::string &FileName) {
+
   if (OpenFiles.find(FileName) == OpenFiles.end()) {
     OpenFiles[FileName] = new std::ofstream(FileName,
                                             std::ios::out | std::ios::trunc);
   }
   return OpenFiles[FileName];
+}
+
+static void closeOutputFiles() {
+  for (auto it = OpenFiles.begin(); it != OpenFiles.end(); ++it) {
+    delete it->second;
+  }
+  OpenFiles.clear();
 }
 
 class AllocSite {
@@ -85,6 +92,7 @@ public:
       Out << "__uniqtype__";
     }
     Out << AllocType << std::endl;
+    Out.flush();
 
     free(SourceRealPath);
   }
@@ -439,6 +447,7 @@ struct AllocSitesPass : public ModulePass {
     } while (PrevFunctionTypes != Handler.FunctionTypes);
 
     Handler.emit();
+    closeOutputFiles();
 
     return ret;
   }
