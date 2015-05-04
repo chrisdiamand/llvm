@@ -41,29 +41,45 @@ static std::ofstream *openOutputFile(const std::string &FileName) {
   return OpenFiles[FileName];
 }
 
-static void emitAllocSite(llvm::Instruction *I, std::string Name,
-                          std::string Type)
-{
-  auto Loc = I->getDebugLoc();
-  if (!Loc) {
-    errs() << "Warning: Cannot find allocation site: "
-           << "Debug info not available.\n";
-    return;
+class AllocSite {
+private:
+  llvm::Instruction   *Instr;
+  std::string         Name;
+  Composite::Type     AllocType;
+  bool                Success;
+
+public:
+  AllocSite(llvm::Instruction *_Instr, std::string _Name,
+            Composite::Type _AllocType, bool _Success) :
+    Instr(_Instr), Name(_Name), AllocType(_AllocType), Success(_Success) {};
+
+  void emit(void) {
+    if (!Success) {
+      errs() << "Warning: Could not infer type from allocation site.\n";
+      AllocType = Composite::TypeNotInferred;
+    }
+
+    auto Loc = Instr->getDebugLoc();
+    if (!Loc) {
+      errs() << "Warning: Cannot find allocation site: "
+             << "Debug info not available.\n";
+      return;
+    }
+
+    unsigned Line = Loc->getLine();
+    const std::string SourcePath = Loc->getScope()->getFile()->getFilename();
+
+    std::string SitesFileName = getOutputFName(SourcePath);
+    std::ofstream &Out = *openOutputFile(SitesFileName);
+
+    char *SourceRealPath = realpath(SourcePath.c_str(), NULL);
+
+    Out << SourceRealPath << "\t" << Line << "\t" << Name;
+    Out << "\t__uniqtype__" << AllocType << std::endl;
+
+    free(SourceRealPath);
   }
-
-  unsigned Line = Loc->getLine();
-  const std::string SourcePath = Loc->getScope()->getFile()->getFilename();
-
-  std::string SitesFileName = getOutputFName(SourcePath);
-  std::ofstream &Out = *openOutputFile(SitesFileName);
-
-  char *SourceRealPath = realpath(SourcePath.c_str(), NULL);
-
-  Out << SourceRealPath << "\t" << Line << "\t" << Name;
-  Out << "\t__uniqtype__" << Type << std::endl;
-
-  free(SourceRealPath);
-}
+};
 
 typedef std::map<Value *, Composite::Type> TypeMap;
 
@@ -91,6 +107,7 @@ private:
   std::map<Value *, Crunch::AllocFunction *> AllocAssigns;
   std::vector<CallInst *> InstructionsToRemove;
   int pass; // How many passes have been run.
+  std::vector<AllocSite> AllocSites;
 
   void dumpTypeMap() {
     errs() << "Types:\n";
@@ -192,16 +209,13 @@ private:
 
     std::string UniqtypeName = "";
 
+    bool success = false;
     if (TypeAssigns.find(SizeArg) != TypeAssigns.end()) {
       UniqtypeName = getType(SizeArg);
-    } else {
-      VMContext.diagnose(DiagnosticInfoInlineAsm::DiagnosticInfoInlineAsm(
-        *I, "Could not infer type from allocation site", DS_Warning));
-      /* Emit a `void' type if we can't find it, since casts to this won't
-       * cause errors. */
-      UniqtypeName = "void";
+      success = true;
     }
-    emitAllocSite(I, AllocFun->getName(), UniqtypeName);
+    AllocSite AS(I, AllocFun->getName(), UniqtypeName, success);
+    AllocSites.push_back(AS);
     return true;
   }
 
@@ -291,7 +305,8 @@ private:
   bool runOnAllocaInst(llvm::AllocaInst *I) {
     Value *Arg = I->getArraySize();
     if (hasType(Arg)) {
-      emitAllocSite(I, "__builtin_alloca", getType(Arg));
+      AllocSite AS(I, "__builtin_alloca", getType(Arg), true);
+      AllocSites.push_back(AS);
     }
     return false;
   }
@@ -349,6 +364,7 @@ public:
   bool run() {
     pass++;
     bool ret = false;
+    AllocSites.clear();
 
     /* Initialise the type assignments to known sizeof-returning functions, and
      * the preserved info from __crunch_sizeof__ marker calls. */
@@ -369,6 +385,13 @@ public:
     return ret;
   }
 
+  // Write all the allocation sites out.
+  void emit() {
+    for (auto it = AllocSites.begin(); it != AllocSites.end(); ++it) {
+      it->emit();
+    }
+  }
+
   ModuleHandler(Module &M) :
     TheModule(M), VMContext(M.getContext()), pass(0) {};
 };
@@ -384,11 +407,9 @@ struct AllocSitesPass : public ModulePass {
     do {
       PrevFunctionTypes = Handler.FunctionTypes;
       ret = Handler.run() | ret;
-      errs() << "Old:\n";
-      Handler.dumpTypeMap(PrevFunctionTypes);
-      errs() << "New:\n";
-      Handler.dumpTypeMap(Handler.FunctionTypes);
     } while (PrevFunctionTypes != Handler.FunctionTypes);
+
+    Handler.emit();
 
     return ret;
   }

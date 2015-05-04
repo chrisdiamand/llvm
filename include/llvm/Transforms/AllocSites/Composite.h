@@ -7,6 +7,8 @@ namespace Composite {
 
 typedef std::string Type;
 
+const std::string TypeNotInferred = "void";
+
 // TODO: Do this properly.
 extern inline Type add(Type T1, Type T2) {
     return T1 + "_plus_" + T2;
