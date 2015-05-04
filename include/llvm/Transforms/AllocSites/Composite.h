@@ -3,42 +3,93 @@
 
 #include <llvm/Support/raw_ostream.h>
 
-#include <iostream>
 #include <cstring>
+#include <iostream>
+#include <set>
 
 namespace Composite {
 
-class Type {
+/* In order to do arithmetic on `sizeof' types, represent them as sums of
+ * fractions. This is _not_ recursive - there is no point having a full tree
+ * representation since most things don't make sense with types anyway. */
+
+class BaseTypePtr {
+public:
+  const std::string Base;
+  const int PointerDegree;
+
+  const std::string str(bool) const;
+  const std::string strComposite() const;
+  const std::string strUniqtype() const;
+
+  inline bool operator==(const BaseTypePtr &Other) const {
+    return Base == Other.Base;
+  }
+
+  inline bool operator!=(const BaseTypePtr &Other) const {
+    return !(*this == Other);
+  }
+
+  inline bool operator<(const BaseTypePtr &Other) const {
+    return Base < Other.Base;
+  }
+
+  BaseTypePtr(const std::string &B, const int P) :
+    Base(B), PointerDegree(P) {};
+};
+
+class TypeTerm {
 private:
-  std::string UniqtypeStr;
-  bool valid;
+  std::set<BaseTypePtr> Top, Bottom;
+
+  void mulBase(const BaseTypePtr &);
+  void divBase(const BaseTypePtr &);
 
 public:
-  inline void check(void) const {
-    assert((valid && UniqtypeStr.size() > 0) ||
-           (!valid && UniqtypeStr.size() == 0));
+
+  inline TypeTerm(BaseTypePtr Base) {
+    Top.insert(Base);
+  }
+  inline TypeTerm() {}
+
+  inline bool operator==(const TypeTerm &Other) const {
+    return Top == Other.Top && Bottom == Other.Bottom;
   }
 
-  Type(std::string _UniqtypeStr) :
-    UniqtypeStr(_UniqtypeStr), valid(true) {
-    check();
+  inline bool operator<(const TypeTerm &Other) const {
+    return str(false) < Other.str(false);
   }
 
-  Type(const Type &T) : UniqtypeStr(T.UniqtypeStr), valid(T.valid) {
-    check();
-  }
+  const std::string str(bool) const;
+  const TypeTerm mul(const TypeTerm &) const;
+  const TypeTerm recip() const;
+};
 
-  // An empty type to show that no type was found.
-  Type() : UniqtypeStr(""), valid(false) {};
+class Type {
+private:
+
+  // The order matters for addition.
+  std::vector<TypeTerm> Pos;
+  std::set<TypeTerm> Neg;
+
+  void addTerm(const TypeTerm &);
+  void subTerm(const TypeTerm &);
+  const Type recip() const;
+
+public:
+
+  Type(std::string &);
+  Type(const Type &T);
+  // An empty type shows that no type was found.
+  inline Type(void) {};
 
   const Type add(const Type &) const;
   const Type sub(const Type &) const;
   const Type mul(const Type &) const;
   const Type div(const Type &) const;
 
-  inline bool isValid() const {
-    return valid;
-  }
+  bool isVoid() const;
+  bool isComposite() const;
 
   bool operator==(const Type &) const;
 

@@ -53,7 +53,7 @@ public:
     Instr(_Instr), Name(_Name), AllocType(_AllocType), Success(_Success) {};
 
   void emit(void) {
-    if (!AllocType.isValid()) {
+    if (AllocType.isVoid()) {
       errs() << "Warning: Could not infer type from allocation site.\n";
     }
 
@@ -72,8 +72,19 @@ public:
 
     char *SourceRealPath = realpath(SourcePath.c_str(), NULL);
 
-    Out << SourceRealPath << "\t" << Line << "\t" << Name;
-    Out << "\t__uniqtype__" << AllocType << std::endl;
+    Out << SourceRealPath << "\t" << Line << "\t" << Name << "\t";
+    if (AllocType.isComposite()) {
+      Out << "structure_type dumpallocs_synthetic_";
+      for (char *c = SourceRealPath; *c != '\0'; ++c) {
+        if (*c == '/' || *c == '.') {
+          *c = '_';
+        }
+      }
+      Out << SourceRealPath << "_" << Line << " ";
+    } else {
+      Out << "__uniqtype__";
+    }
+    Out << AllocType << std::endl;
 
     free(SourceRealPath);
   }
@@ -131,8 +142,10 @@ private:
 
   const Composite::Type getType(llvm::Value *Key) {
     Key = canonicalise(Key);
-    assert(TypeAssigns.find(Key) != TypeAssigns.end());
-    return TypeAssigns[Key];
+    if (TypeAssigns.find(Key) != TypeAssigns.end()) {
+      return TypeAssigns[Key];
+    }
+    return Composite::Type();
   }
 
   void setType(llvm::Value *Key, const Composite::Type Val) {
@@ -140,8 +153,15 @@ private:
     /* Generally, things should only be assigned once, since it's SSA.
      * Sizeof-returning functions persist between passes though so may be
      * overwritten. */
-    assert(TypeAssigns.find(Key) == TypeAssigns.end() ||
-           FunctionTypes.find(Key) != FunctionTypes.end());
+    if (TypeAssigns.find(Key) != TypeAssigns.end() &&
+        FunctionTypes.find(Key) == FunctionTypes.end()) {
+      errs() << "Error: Value \'" << Key->getName() << "\' assigned twice!\n";
+      Key->dump();
+      errs() << "Old type: \'" << getType(Key) << "\'\n";
+      errs() << "New type: \'" << Val << "\'\n";
+      dumpTypeMap();
+      assert(false && "SSA Value assigned twice.");
+    }
     TypeAssigns[Key] = Val;
   }
 
@@ -284,20 +304,23 @@ private:
     llvm::Value *V1 = I->getOperand(0);
     llvm::Value *V2 = I->getOperand(1);
 
+    if (!hasType(V1) && !hasType(V2)) {
+      return false;
+    }
+
     switch (I->getOpcode()) {
       case Instruction::Add:
+        setType(I, getType(V1).add(getType(V2)));
+        break;
+      case Instruction::Sub:
+        setType(I, getType(V1).sub(getType(V2)));
+        break;
       case Instruction::Mul:
-        if (hasType(V1) && !hasType(V2)) {
-          propagateType(V1, I);
-        } else if (!hasType(V1) && hasType(V2)) {
-          propagateType(V2, I);
-        } else if (hasType(V1) && hasType(V2)) {
-          if (I->getOpcode() == Instruction::Mul) {
-            setType(I, getType(V1).mul(getType(V2)));
-          } else {
-            setType(I, getType(V1).add(getType(V2)));
-          }
-        }
+        setType(I, getType(V1).mul(getType(V2)));
+        break;
+      case Instruction::SDiv:
+      case Instruction::UDiv:
+        setType(I, getType(V1).div(getType(V2)));
         break;
     }
     return false;
@@ -408,6 +431,11 @@ struct AllocSitesPass : public ModulePass {
     do {
       PrevFunctionTypes = Handler.FunctionTypes;
       ret = Handler.run() | ret;
+
+      // If there are no sizeof-returning functions then we only need one pass.
+      if (Handler.FunctionTypes.size() == 0) {
+        break;
+      }
     } while (PrevFunctionTypes != Handler.FunctionTypes);
 
     Handler.emit();
