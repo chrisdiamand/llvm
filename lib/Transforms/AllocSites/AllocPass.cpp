@@ -68,6 +68,7 @@ static void emitAllocSite(llvm::Instruction *I, std::string Name,
 class ModuleHandler {
 private:
   llvm::Module &TheModule;
+  Function *CurrentFunction;
   llvm::LLVMContext &VMContext;
   std::map<Value *, std::string> TypeAssigns;
   std::map<Value *, Crunch::AllocFunction *> AllocAssigns;
@@ -89,13 +90,33 @@ private:
     }
   }
 
+  llvm::Value *canonicalise(llvm::Value *V) {
+    assert(V != nullptr);
+    return V->stripPointerCasts();
+  }
+
   bool hasType(llvm::Value *Key) {
-    return TypeAssigns.find(Key) != TypeAssigns.end();
+    return TypeAssigns.find(canonicalise(Key)) != TypeAssigns.end();
+  }
+
+  std::string getType(llvm::Value *Key) {
+    Key = canonicalise(Key);
+    if (TypeAssigns.find(Key) != TypeAssigns.end()) {
+      return TypeAssigns[Key];
+    }
+    return "<<ERROR>>";
   }
 
   void setType(llvm::Value *Key, std::string Val) {
+    Key = canonicalise(Key);
     assert(!hasType(Key));
     TypeAssigns[Key] = Val;
+  }
+
+  void propagateType(llvm::Value *Src, llvm::Value *Dst) {
+    if (hasType(Src)) {
+      setType(Dst, getType(Src));
+    }
   }
 
   void handleCrunchSizeofCall(CallInst *I) {
@@ -147,7 +168,7 @@ private:
     std::string UniqtypeName = "";
 
     if (TypeAssigns.find(SizeArg) != TypeAssigns.end()) {
-      UniqtypeName = TypeAssigns[SizeArg];
+      UniqtypeName = getType(SizeArg);
     } else {
       VMContext.diagnose(DiagnosticInfoInlineAsm::DiagnosticInfoInlineAsm(
         *I, "Could not infer type from allocation site", DS_Warning));
@@ -176,7 +197,8 @@ private:
   }
 
   bool runOnCallInst(CallInst *I) {
-    Function *CalledFun = getActualCalledFunction(I->getCalledValue());
+    auto CalledVal = I->getCalledValue();
+    Function *CalledFun = getActualCalledFunction(CalledVal);
 
     if (handleAllocation(I)) {
       return false;
@@ -185,6 +207,9 @@ private:
                CalledFun->getName() == "__crunch_sizeof__") {
       handleCrunchSizeofCall(I);
       return true;
+    } else if (hasType(CalledVal)) {
+      // Some function return sizeof expressions.
+      propagateType(CalledVal, I);
     }
 
     return false;
@@ -194,9 +219,7 @@ private:
     Value *Src = I->getValueOperand();
     Value *Dst = I->getPointerOperand();
 
-    if (TypeAssigns.find(Src) != TypeAssigns.end()) {
-      TypeAssigns[Dst] = TypeAssigns[I] = TypeAssigns[Src];
-    }
+    propagateType(Src, Dst);
 
     if (auto AF = getAllocationFunction(Src)) {
       AllocAssigns[Dst] = AllocAssigns[Src] = AF;
@@ -207,10 +230,7 @@ private:
 
   bool runOnLoadInst(LoadInst *I) {
     Value *Src = I->getPointerOperand();
-
-    if (TypeAssigns.find(Src) != TypeAssigns.end()) {
-      TypeAssigns[I] = TypeAssigns[Src];
-    }
+    propagateType(Src, I);
 
     if (auto AF = getAllocationFunction(Src)) {
       AllocAssigns[I] = AF;
@@ -228,14 +248,14 @@ private:
       case Instruction::Add:
       case Instruction::Mul:
         if (hasType(V1) && !hasType(V2)) {
-          setType(I, TypeAssigns[V1]);
+          propagateType(V1, I);
         } else if (!hasType(V1) && hasType(V2)) {
-          setType(I, TypeAssigns[V2]);
+          propagateType(V2, I);
         } else if (hasType(V1) && hasType(V2)) {
           if (I->getOpcode() == Instruction::Mul) {
-            setType(I, Composite::mul(TypeAssigns[V1], TypeAssigns[V2]));
+            setType(I, Composite::mul(getType(V1), getType(V2)));
           } else {
-            setType(I, Composite::add(TypeAssigns[V1], TypeAssigns[V2]));
+            setType(I, Composite::add(getType(V1), getType(V2)));
           }
         }
         break;
@@ -246,7 +266,15 @@ private:
   bool runOnAllocaInst(llvm::AllocaInst *I) {
     Value *Arg = I->getArraySize();
     if (hasType(Arg)) {
-      emitAllocSite(I, "__builtin_alloca", TypeAssigns[Arg]);
+      emitAllocSite(I, "__builtin_alloca", getType(Arg));
+    }
+    return false;
+  }
+
+  bool runOnReturnInst(llvm::ReturnInst *I) {
+    Value *RetVal = I->getReturnValue();
+    if (RetVal != nullptr) {
+      propagateType(RetVal, CurrentFunction);
     }
     return false;
   }
@@ -262,6 +290,8 @@ private:
       return runOnBinaryOperator(BinI);
     } else if (auto AllocaI = dyn_cast<AllocaInst>(I)) {
       return runOnAllocaInst(AllocaI);
+    } else if (auto RetI = dyn_cast<ReturnInst>(I)) {
+      return runOnReturnInst(RetI);
     }
     return false;
   }
@@ -275,6 +305,7 @@ private:
   }
 
   bool runOnFunction(Function &Func) {
+    CurrentFunction = &Func;
     auto &BBList = Func.getBasicBlockList();
     bool ret = false;
     for (auto it = BBList.begin();
