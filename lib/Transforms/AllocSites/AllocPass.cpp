@@ -66,6 +66,17 @@ static void emitAllocSite(llvm::Instruction *I, std::string Name,
 }
 
 class ModuleHandler {
+public:
+  /* This is a subset of TypeAssigns. Use it to monitor if any sizeof-returning
+   * functions have changed - if they have, do another pass. */
+  std::map<Value *, std::string> FunctionTypes;
+
+  void dumpTypeMap(std::map<Value *, std::string> &TM) {
+    for (auto it = TM.begin(); it != TM.end(); ++it) {
+      errs() << "  " << it->second << ": " << it->first->getName() << "\n";
+    }
+  }
+
 private:
   llvm::Module &TheModule;
   Function *CurrentFunction;
@@ -73,13 +84,11 @@ private:
   std::map<Value *, std::string> TypeAssigns;
   std::map<Value *, Crunch::AllocFunction *> AllocAssigns;
   std::vector<CallInst *> InstructionsToRemove;
+  int pass; // How many passes have been run.
 
   void dumpTypeMap() {
     errs() << "Types:\n";
-    for (auto it = TypeAssigns.begin(); it != TypeAssigns.end(); ++it) {
-      errs() << "  " << it->second << ": ";
-      it->first->dump();
-    }
+    dumpTypeMap(TypeAssigns);
   }
 
   void dumpAllocMap() {
@@ -101,15 +110,17 @@ private:
 
   std::string getType(llvm::Value *Key) {
     Key = canonicalise(Key);
-    if (TypeAssigns.find(Key) != TypeAssigns.end()) {
-      return TypeAssigns[Key];
-    }
-    return "<<ERROR>>";
+    assert(TypeAssigns.find(Key) != TypeAssigns.end());
+    return TypeAssigns[Key];
   }
 
   void setType(llvm::Value *Key, std::string Val) {
     Key = canonicalise(Key);
-    assert(!hasType(Key));
+    /* Generally, things should only be assigned once, since it's SSA.
+     * Sizeof-returning functions persist between passes though so may be
+     * overwritten. */
+    assert(TypeAssigns.find(Key) == TypeAssigns.end() ||
+           FunctionTypes.find(Key) != FunctionTypes.end());
     TypeAssigns[Key] = Val;
   }
 
@@ -275,6 +286,10 @@ private:
     Value *RetVal = I->getReturnValue();
     if (RetVal != nullptr) {
       propagateType(RetVal, CurrentFunction);
+
+      if (hasType(RetVal)) {
+        FunctionTypes[canonicalise(CurrentFunction)] = getType(RetVal);
+      }
     }
     return false;
   }
@@ -320,6 +335,9 @@ public:
   bool run() {
     bool ret = false;
 
+    // Initialise the type assignments to known sizeof-returning functions.
+    TypeAssigns = FunctionTypes;
+
     //Module::FunctionListType &FunList = TheModule.getFunctionList();
     auto &FunList = TheModule.getFunctionList();
     for (auto it = FunList.begin(); it != FunList.end(); ++it) {
@@ -330,12 +348,14 @@ public:
          it != InstructionsToRemove.end(); ++it) {
       (*it)->eraseFromParent();
     }
+    InstructionsToRemove.clear();
 
+    pass++;
     return ret;
   }
 
   ModuleHandler(Module &M) :
-    TheModule(M), VMContext(M.getContext()) {};
+    TheModule(M), VMContext(M.getContext()), pass(0) {};
 };
 
 struct AllocSitesPass : public ModulePass {
@@ -343,8 +363,19 @@ struct AllocSitesPass : public ModulePass {
   AllocSitesPass() : ModulePass(ID) {}
 
   bool runOnModule(Module &M) override {
+    bool ret = false;
     ModuleHandler Handler(M);
-    return Handler.run();
+    std::map<llvm::Value *, std::string> PrevFunctionTypes;
+    do {
+      PrevFunctionTypes = Handler.FunctionTypes;
+      ret = Handler.run() | ret;
+      errs() << "Old:\n";
+      Handler.dumpTypeMap(PrevFunctionTypes);
+      errs() << "New:\n";
+      Handler.dumpTypeMap(Handler.FunctionTypes);
+    } while (PrevFunctionTypes != Handler.FunctionTypes);
+
+    return ret;
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
