@@ -7,7 +7,6 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/AllocSites/AllocFunction.h"
 #include "llvm/Transforms/AllocSites/AllocSites.h"
 #include "llvm/Transforms/AllocSites/Composite.h"
@@ -45,7 +44,7 @@ class AllocSite {
 private:
   llvm::Instruction   *Instr;
   std::string         Name;
-  Composite::Type     AllocType;
+  const Composite::Type     AllocType;
   bool                Success;
 
 public:
@@ -54,9 +53,8 @@ public:
     Instr(_Instr), Name(_Name), AllocType(_AllocType), Success(_Success) {};
 
   void emit(void) {
-    if (!Success) {
+    if (!AllocType.isValid()) {
       errs() << "Warning: Could not infer type from allocation site.\n";
-      AllocType = Composite::TypeNotInferred;
     }
 
     auto Loc = Instr->getDebugLoc();
@@ -131,13 +129,13 @@ private:
     return TypeAssigns.find(canonicalise(Key)) != TypeAssigns.end();
   }
 
-  std::string getType(llvm::Value *Key) {
+  const Composite::Type getType(llvm::Value *Key) {
     Key = canonicalise(Key);
     assert(TypeAssigns.find(Key) != TypeAssigns.end());
     return TypeAssigns[Key];
   }
 
-  void setType(llvm::Value *Key, std::string Val) {
+  void setType(llvm::Value *Key, const Composite::Type Val) {
     Key = canonicalise(Key);
     /* Generally, things should only be assigned once, since it's SSA.
      * Sizeof-returning functions persist between passes though so may be
@@ -174,7 +172,8 @@ private:
     /* Now associate the type with the size argument. We don't need to
      * associate the CallInstr as well, since we've removed it. */
     auto TypeArg = cast<ConstantDataArray>(I->getArgOperand(0));
-    std::string Type = TypeArg->getAsString();
+    std::string UniqtypeStr = TypeArg->getAsString();
+    Composite::Type Type(UniqtypeStr);
     setType(UniqueSize, Type);
 
     // Add it to SizeofTypes as well so it will be preserved for the next pass.
@@ -207,15 +206,17 @@ private:
     assert(SizeArgIndex < I->getNumArgOperands());
     llvm::Value *SizeArg = I->getArgOperand(SizeArgIndex);
 
-    std::string UniqtypeName = "";
-
     bool success = false;
+    Composite::Type Uniqtype;
+
     if (TypeAssigns.find(SizeArg) != TypeAssigns.end()) {
-      UniqtypeName = getType(SizeArg);
       success = true;
+      Uniqtype = getType(SizeArg);
     }
-    AllocSite AS(I, AllocFun->getName(), UniqtypeName, success);
+
+    AllocSite AS(I, AllocFun->getName(), Uniqtype, success);
     AllocSites.push_back(AS);
+
     return true;
   }
 
@@ -292,9 +293,9 @@ private:
           propagateType(V2, I);
         } else if (hasType(V1) && hasType(V2)) {
           if (I->getOpcode() == Instruction::Mul) {
-            setType(I, Composite::mul(getType(V1), getType(V2)));
+            setType(I, getType(V1).mul(getType(V2)));
           } else {
-            setType(I, Composite::add(getType(V1), getType(V2)));
+            setType(I, getType(V1).add(getType(V2)));
           }
         }
         break;
