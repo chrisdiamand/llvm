@@ -65,23 +65,29 @@ static void emitAllocSite(llvm::Instruction *I, std::string Name,
   free(SourceRealPath);
 }
 
+typedef std::map<Value *, Composite::Type> TypeMap;
+
 class ModuleHandler {
 public:
   /* This is a subset of TypeAssigns. Use it to monitor if any sizeof-returning
    * functions have changed - if they have, do another pass. */
-  std::map<Value *, std::string> FunctionTypes;
+  TypeMap FunctionTypes;
 
-  void dumpTypeMap(std::map<Value *, std::string> &TM) {
+  void dumpTypeMap(TypeMap &TM) {
     for (auto it = TM.begin(); it != TM.end(); ++it) {
       errs() << "  " << it->second << ": " << it->first->getName() << "\n";
     }
   }
 
+  /* We also need to preserve the __crunch_sizeof__ call information between
+   * passes, since the calls are removed in the first pass. */
+  TypeMap SizeofTypes;
+
 private:
   llvm::Module &TheModule;
   Function *CurrentFunction;
   llvm::LLVMContext &VMContext;
-  std::map<Value *, std::string> TypeAssigns;
+  TypeMap TypeAssigns;
   std::map<Value *, Crunch::AllocFunction *> AllocAssigns;
   std::vector<CallInst *> InstructionsToRemove;
   int pass; // How many passes have been run.
@@ -131,6 +137,10 @@ private:
   }
 
   void handleCrunchSizeofCall(CallInst *I) {
+    // This should only happen on the first pass - the calls should have been
+    // removed after that.
+    assert(pass == 1);
+
     /* Replace the call instruction with its second argument. We can't
      * actually remove it here though since the iterator gets confused. */
     Value *SizeArg = I->getArgOperand(1);
@@ -149,6 +159,10 @@ private:
     auto TypeArg = cast<ConstantDataArray>(I->getArgOperand(0));
     std::string Type = TypeArg->getAsString();
     setType(UniqueSize, Type);
+
+    // Add it to SizeofTypes as well so it will be preserved for the next pass.
+    assert(SizeofTypes.find(UniqueSize) == SizeofTypes.end());
+    SizeofTypes[UniqueSize] = Type;
   }
 
   Crunch::AllocFunction *getAllocationFunction(llvm::Value *V) {
@@ -333,12 +347,14 @@ private:
 
 public:
   bool run() {
+    pass++;
     bool ret = false;
 
-    // Initialise the type assignments to known sizeof-returning functions.
+    /* Initialise the type assignments to known sizeof-returning functions, and
+     * the preserved info from __crunch_sizeof__ marker calls. */
     TypeAssigns = FunctionTypes;
+    TypeAssigns.insert(SizeofTypes.begin(), SizeofTypes.end());
 
-    //Module::FunctionListType &FunList = TheModule.getFunctionList();
     auto &FunList = TheModule.getFunctionList();
     for (auto it = FunList.begin(); it != FunList.end(); ++it) {
       ret = runOnFunction(*it) | ret;
@@ -350,7 +366,6 @@ public:
     }
     InstructionsToRemove.clear();
 
-    pass++;
     return ret;
   }
 
@@ -365,7 +380,7 @@ struct AllocSitesPass : public ModulePass {
   bool runOnModule(Module &M) override {
     bool ret = false;
     ModuleHandler Handler(M);
-    std::map<llvm::Value *, std::string> PrevFunctionTypes;
+    TypeMap PrevFunctionTypes;
     do {
       PrevFunctionTypes = Handler.FunctionTypes;
       ret = Handler.run() | ret;
