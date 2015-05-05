@@ -104,7 +104,7 @@ const TypeTerm TypeTerm::recip() const {
   return Ret;
 }
 
-const std::string Type::str() const {
+const std::string ArithType::str() const {
   if (isVoid()) {
     return "void";
   }
@@ -134,7 +134,7 @@ const std::string Type::str() const {
   return Ret;
 }
 
-bool Type::isVoid() const {
+bool ArithType::isVoid() const {
   /* Only need to check Pos and Neg, if they are not empty then they still
    * should not contain any empty TypeFractions. */
   if (Pos.size() == 0 && Neg.size() == 0) {
@@ -143,14 +143,14 @@ bool Type::isVoid() const {
   return false;
 }
 
-bool Type::isComposite() const {
+bool ArithType::isComposite() const {
   if (Pos.size() > 1) {
     return true;
   }
   return false;
 }
 
-Type::Type(std::string &UniqtypeStr) {
+ArithType::ArithType(std::string &UniqtypeStr) {
   int PointerDegree = 0;
   while (UniqtypeStr.find("__PTR_") == 0) {
     PointerDegree++;
@@ -161,13 +161,13 @@ Type::Type(std::string &UniqtypeStr) {
   Pos.push_back(Frac);
 }
 
-Type::Type(const Type &T) {
+ArithType::ArithType(const ArithType &T) {
   Pos = T.Pos;
   Neg = T.Neg;
 }
 
 // Warning: This function operates in place!
-void Type::addTerm(const TypeTerm &Term) {
+void ArithType::addTerm(const TypeTerm &Term) {
   if (Term.isVoid()) {
     return;
   }
@@ -181,7 +181,7 @@ void Type::addTerm(const TypeTerm &Term) {
   }
 }
 
-void Type::subTerm(const TypeTerm &Term) {
+void ArithType::subTerm(const TypeTerm &Term) {
   if (Term.isVoid()) {
     return;
   }
@@ -194,8 +194,8 @@ void Type::subTerm(const TypeTerm &Term) {
   }
 }
 
-const Type Type::add(const Type &T2) const {
-  Type Ret(*this);
+const ArithType ArithType::add(const ArithType &T2) const {
+  ArithType Ret(*this);
 
   for (auto it = T2.Pos.begin(); it != T2.Pos.end(); ++it) {
     Ret.addTerm(*it);
@@ -207,8 +207,8 @@ const Type Type::add(const Type &T2) const {
   return Ret;
 }
 
-const Type Type::sub(const Type &T2) const {
-  Type Ret(*this);
+const ArithType ArithType::sub(const ArithType &T2) const {
+  ArithType Ret(*this);
 
   for (auto it = T2.Pos.begin(); it != T2.Pos.end(); ++it) {
     Ret.subTerm(*it);
@@ -220,8 +220,8 @@ const Type Type::sub(const Type &T2) const {
   return Ret;
 }
 
-const Type Type::mul(const Type &T2) const {
-  Type Ret;
+const ArithType ArithType::mul(const ArithType &T2) const {
+  ArithType Ret;
 
   // If one operand void, just copy the other operand's type.
   if (isVoid()) {
@@ -251,8 +251,8 @@ const Type Type::mul(const Type &T2) const {
   return Ret;
 }
 
-const Type Type::recip() const {
-  Type Ret;
+const ArithType ArithType::recip() const {
+  ArithType Ret;
 
   for (auto it = Pos.begin(); it != Pos.end(); ++it) {
     Ret.Pos.push_back(it->recip());
@@ -264,8 +264,8 @@ const Type Type::recip() const {
   return Ret;
 }
 
-const Type Type::div(const Type &T2) const {
-  Type Recip = T2.recip();
+const ArithType ArithType::div(const ArithType &T2) const {
+  ArithType Recip = T2.recip();
 
   if (isVoid()) {
     return Recip;
@@ -276,11 +276,11 @@ const Type Type::div(const Type &T2) const {
   return mul(Recip);
 }
 
-bool Type::operator==(const Type &T) const {
+bool ArithType::operator==(const ArithType &T) const {
   return Pos == T.Pos && Neg == T.Neg;
 }
 
-Type &Type::operator=(const Type &Other) {
+ArithType &ArithType::operator=(const ArithType &Other) {
   if (this == &Other) {
     return *this;
   }
@@ -289,12 +289,12 @@ Type &Type::operator=(const Type &Other) {
   return *this;
 }
 
-std::ostream &operator<<(std::ostream &OS, const Type &T) {
+std::ostream &operator<<(std::ostream &OS, const ArithType &T) {
   OS << T.str();
   return OS;
 }
 
-llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const Type &T) {
+llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const ArithType &T) {
   OS << T.str();
   return OS;
 }

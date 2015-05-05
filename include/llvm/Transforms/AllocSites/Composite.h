@@ -69,7 +69,7 @@ public:
   }
 };
 
-class Type {
+class ArithType {
 private:
 
   // The order matters for addition.
@@ -78,34 +78,34 @@ private:
 
   void addTerm(const TypeTerm &);
   void subTerm(const TypeTerm &);
-  const Type recip() const;
+  const ArithType recip() const;
 
 public:
 
-  Type(std::string &);
-  Type(const Type &T);
+  ArithType(std::string &);
+  ArithType(const ArithType &T);
   // An empty type shows that no type was found.
-  inline Type(void) {};
+  inline ArithType(void) {};
 
-  const Type add(const Type &) const;
-  const Type sub(const Type &) const;
-  const Type mul(const Type &) const;
-  const Type div(const Type &) const;
+  const ArithType add(const ArithType &) const;
+  const ArithType sub(const ArithType &) const;
+  const ArithType mul(const ArithType &) const;
+  const ArithType div(const ArithType &) const;
 
   bool isVoid() const;
   bool isComposite() const;
 
-  bool operator==(const Type &) const;
+  bool operator==(const ArithType &) const;
 
-  inline bool operator!=(const Type &Other) const {
+  inline bool operator!=(const ArithType &Other) const {
     return !(*this == Other);
   }
 
-  Type &operator=(const Type &);
+  ArithType &operator=(const ArithType &);
 
   const std::string str() const;
-  friend llvm::raw_ostream &operator<<(llvm::raw_ostream &, const Type &);
-  friend std::ostream &operator<<(std::ostream &, const Type &);
+  friend llvm::raw_ostream &operator<<(llvm::raw_ostream &, const ArithType &);
+  friend std::ostream &operator<<(std::ostream &, const ArithType &);
 };
 
 } // namespace Composite

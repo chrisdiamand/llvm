@@ -51,12 +51,12 @@ class AllocSite {
 private:
   llvm::Instruction   *Instr;
   std::string         Name;
-  const Composite::Type     AllocType;
+  const Composite::ArithType     AllocType;
   bool                Success;
 
 public:
   AllocSite(llvm::Instruction *_Instr, std::string _Name,
-            Composite::Type _AllocType, bool _Success) :
+            Composite::ArithType _AllocType, bool _Success) :
     Instr(_Instr), Name(_Name), AllocType(_AllocType), Success(_Success) {};
 
   void emit(void) {
@@ -98,7 +98,7 @@ public:
   }
 };
 
-typedef std::map<Value *, Composite::Type> TypeMap;
+typedef std::map<Value *, Composite::ArithType> TypeMap;
 
 class ModuleHandler {
 public:
@@ -148,15 +148,15 @@ private:
     return TypeAssigns.find(canonicalise(Key)) != TypeAssigns.end();
   }
 
-  const Composite::Type getType(llvm::Value *Key) {
+  const Composite::ArithType getType(llvm::Value *Key) {
     Key = canonicalise(Key);
     if (TypeAssigns.find(Key) != TypeAssigns.end()) {
       return TypeAssigns[Key];
     }
-    return Composite::Type();
+    return Composite::ArithType();
   }
 
-  void setType(llvm::Value *Key, const Composite::Type Val, bool Store = false) {
+  void setType(llvm::Value *Key, const Composite::ArithType Val, bool Store = false) {
     Key = canonicalise(Key);
     /* Generally, things should only be assigned once, since it's SSA.
      * Sizeof-returning functions persist between passes though so may be
@@ -202,12 +202,12 @@ private:
      * associate the CallInstr as well, since we've removed it. */
     auto TypeArg = cast<ConstantDataArray>(I->getArgOperand(0));
     std::string UniqtypeStr = TypeArg->getAsString();
-    Composite::Type Type(UniqtypeStr);
-    setType(UniqueSize, Type);
+    Composite::ArithType ArithType(UniqtypeStr);
+    setType(UniqueSize, ArithType);
 
     // Add it to SizeofTypes as well so it will be preserved for the next pass.
     assert(SizeofTypes.find(UniqueSize) == SizeofTypes.end());
-    SizeofTypes[UniqueSize] = Type;
+    SizeofTypes[UniqueSize] = ArithType;
   }
 
   Crunch::AllocFunction *getAllocationFunction(llvm::Value *V) {
@@ -236,7 +236,7 @@ private:
     llvm::Value *SizeArg = I->getArgOperand(SizeArgIndex);
 
     bool success = false;
-    Composite::Type Uniqtype;
+    Composite::ArithType Uniqtype;
 
     if (TypeAssigns.find(SizeArg) != TypeAssigns.end()) {
       success = true;
