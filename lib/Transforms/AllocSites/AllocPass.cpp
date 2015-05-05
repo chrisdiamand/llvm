@@ -156,12 +156,13 @@ private:
     return Composite::Type();
   }
 
-  void setType(llvm::Value *Key, const Composite::Type Val) {
+  void setType(llvm::Value *Key, const Composite::Type Val, bool Store = false) {
     Key = canonicalise(Key);
     /* Generally, things should only be assigned once, since it's SSA.
      * Sizeof-returning functions persist between passes though so may be
-     * overwritten. */
-    if (TypeAssigns.find(Key) != TypeAssigns.end() &&
+     * overwritten. This doesn't apply to store instructions, since the same
+     * memory address could be overwritten many times. */
+    if (!Store && TypeAssigns.find(Key) != TypeAssigns.end() &&
         FunctionTypes.find(Key) == FunctionTypes.end()) {
       errs() << "Error: Value \'" << Key->getName() << "\' assigned twice!\n";
       Key->dump();
@@ -173,9 +174,9 @@ private:
     TypeAssigns[Key] = Val;
   }
 
-  void propagateType(llvm::Value *Src, llvm::Value *Dst) {
+  void propagateType(llvm::Value *Src, llvm::Value *Dst, bool Store = false) {
     if (hasType(Src)) {
-      setType(Dst, getType(Src));
+      setType(Dst, getType(Src), Store);
     }
   }
 
@@ -287,7 +288,7 @@ private:
     Value *Src = I->getValueOperand();
     Value *Dst = I->getPointerOperand();
 
-    propagateType(Src, Dst);
+    propagateType(Src, Dst, true);
 
     if (auto AF = getAllocationFunction(Src)) {
       AllocAssigns[Dst] = AllocAssigns[Src] = AF;
