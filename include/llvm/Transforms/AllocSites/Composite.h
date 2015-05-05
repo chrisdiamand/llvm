@@ -63,6 +63,10 @@ public:
   const std::string str(bool) const;
   const TypeTerm mul(const TypeTerm &) const;
   const TypeTerm recip() const;
+
+  inline bool isVoid() const {
+    return Top.size() == 0 && Bottom.size() == 0;
+  }
 };
 
 class Type {

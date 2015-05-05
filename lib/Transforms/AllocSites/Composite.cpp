@@ -168,6 +168,10 @@ Type::Type(const Type &T) {
 
 // Warning: This function operates in place!
 void Type::addTerm(const TypeTerm &Term) {
+  if (Term.isVoid()) {
+    return;
+  }
+
   // If the same fraction exists on the negative side, cancel them.
   auto IsInNeg = std::find(Neg.begin(), Neg.end(), Term);
   if (IsInNeg != Neg.end()) {
@@ -178,6 +182,10 @@ void Type::addTerm(const TypeTerm &Term) {
 }
 
 void Type::subTerm(const TypeTerm &Term) {
+  if (Term.isVoid()) {
+    return;
+  }
+
   auto IsInPos = std::find(Pos.begin(), Pos.end(), Term);
   if (IsInPos != Pos.end()) {
     Pos.erase(IsInPos);
