@@ -199,7 +199,7 @@ private:
     InstructionsToRemove.push_back(I);
 
     /* Now associate the type with the size argument. We don't need to
-     * associate the CallInstr as well, since we've removed it. */
+     * associate the CallInst as well, since we've removed it. */
     auto TypeArg = cast<ConstantDataArray>(I->getArgOperand(0));
     std::string UniqtypeStr = TypeArg->getAsString();
     Composite::ArithType ArithType(UniqtypeStr);
