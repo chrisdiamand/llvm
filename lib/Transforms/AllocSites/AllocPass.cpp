@@ -440,11 +440,6 @@ struct AllocSitesPass : public ModulePass {
     do {
       PrevFunctionTypes = Handler.FunctionTypes;
       ret = Handler.run() | ret;
-
-      // If there are no sizeof-returning functions then we only need one pass.
-      if (Handler.FunctionTypes.size() == 0) {
-        break;
-      }
     } while (PrevFunctionTypes != Handler.FunctionTypes);
 
     Handler.emit();
