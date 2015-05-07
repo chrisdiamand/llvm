@@ -435,12 +435,17 @@ struct AllocSitesPass : public ModulePass {
 
   bool runOnModule(Module &M) override {
     bool ret = false;
+    /* Stop iterating when there have been more passes that there are
+     * sizeof-returning function. */
+    size_t PassCount = 0;
+
     ModuleHandler Handler(M);
     TypeMap PrevFunctionTypes;
     do {
       PrevFunctionTypes = Handler.FunctionTypes;
       ret = Handler.run() | ret;
-    } while (PrevFunctionTypes != Handler.FunctionTypes);
+    } while (PrevFunctionTypes != Handler.FunctionTypes &&
+             PassCount++ < Handler.FunctionTypes.size());
 
     Handler.emit();
     closeOutputFiles();
