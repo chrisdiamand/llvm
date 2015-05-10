@@ -141,7 +141,8 @@ private:
 
   llvm::Value *canonicalise(llvm::Value *V) {
     assert(V != nullptr);
-    return V->stripPointerCasts();
+    auto ret = V->stripPointerCasts();
+    return ret;
   }
 
   bool hasType(llvm::Value *Key) {
@@ -211,17 +212,14 @@ private:
   }
 
   Crunch::AllocFunction *getAllocationFunction(llvm::Value *V) {
-
     if (V != nullptr && AllocAssigns.find(V) != AllocAssigns.end()) {
       return AllocAssigns[V];
     }
 
-    if (auto F = getActualCalledFunction(V)) {
-      std::string Name = F->getName();
-      return Crunch::AllocFunction::get(Name);
-    }
-
-    return nullptr;
+    // Sometimes the sizeof marker function is surrounded by a bitcast.
+    V = V->stripPointerCasts();
+    std::string Name = V->getName();
+    return Crunch::AllocFunction::get(Name);
   }
 
   bool handleAllocation(CallInst *I) {
@@ -249,25 +247,9 @@ private:
     return true;
   }
 
-  // Sometimes the sizeof marker function is surrounded by a bitcast.
-  llvm::Function *getActualCalledFunction(llvm::Value *I) {
-    if (auto Fun = dyn_cast<llvm::Function>(I)) {
-      return Fun;
-    }
-
-    if (auto Usr = dyn_cast<llvm::User>(I)) {
-      for (auto it = Usr->op_begin(); it != Usr->op_end(); ++it) {
-        if (auto Ret = getActualCalledFunction(*it)) {
-          return Ret;
-        }
-      }
-    }
-    return nullptr;
-  }
-
   bool runOnCallInst(CallInst *I) {
     auto CalledVal = I->getCalledValue();
-    Function *CalledFun = getActualCalledFunction(CalledVal);
+    auto CalledFun = dyn_cast<llvm::Function>(CalledVal->stripPointerCasts());
 
     if (handleAllocation(I)) {
       return false;
@@ -299,6 +281,7 @@ private:
 
   bool runOnLoadInst(LoadInst *I) {
     Value *Src = I->getPointerOperand();
+    assert(Src != nullptr);
     propagateType(Src, I);
 
     if (auto AF = getAllocationFunction(Src)) {
@@ -454,7 +437,7 @@ struct AllocSitesPass : public ModulePass {
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.setPreservesAll();
+    AU.setPreservesCFG();
   }
 };
 
