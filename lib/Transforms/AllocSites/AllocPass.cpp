@@ -147,17 +147,19 @@ private:
     return Crunch::AllocFunction::get(Name);
   }
 
-  bool handleCallInst(CallInst *I, Composite::ArithType &Uniqtype) {
-    auto AllocFun = getAllocationFunction(I->getCalledValue());
-    if (AllocFun == NULL) {
-      // Not an allocation function so did nothing; return false.
-      return false;
+  void handleCallInst(CallInst *I, llvm::Value *From,
+                      Composite::ArithType &Uniqtype)
+  {
+    auto CalledVal = I->getCalledValue();
+    if (auto AllocFun = getAllocationFunction(CalledVal)) {
+      AllocSite AS(I, AllocFun->getName(), Uniqtype, true);
+      AllocSites.push_back(AS);
+    } else if (CalledVal == From) { /* If the type came from the callee, then
+                                     * it was a sizeof-returning function. */
+      for (User *U : I->users()) {
+        propagateToUsers(I, U, Uniqtype);
+      }
     }
-
-    AllocSite AS(I, AllocFun->getName(), Uniqtype, true);
-    AllocSites.push_back(AS);
-
-    return true;
   }
 
   Composite::ArithType calcBinOpType(llvm::BinaryOperator *I,
@@ -212,7 +214,8 @@ private:
   }
 
   void handleReturnInst(ReturnInst *I, Composite::ArithType &Ty) {
-    // FunctionTypes[canonicalise(CurrentFunction)] = Ty;
+    auto Func = I->getParent()->getParent();
+    FunctionTypes[Func] = Ty;
   }
 
   void handleBinaryOperator(BinaryOperator *I, llvm::Value *From,
@@ -243,7 +246,7 @@ private:
                         Composite::ArithType &Ty)
   {
     if (auto Call = dyn_cast<CallInst>(To)) {
-      handleCallInst(Call, Ty);
+      handleCallInst(Call, From, Ty);
     } else if (auto Ret = dyn_cast<ReturnInst>(To)) {
       handleReturnInst(Ret, Ty);
     } else if (auto Bin = dyn_cast<BinaryOperator>(To)) {
@@ -284,11 +287,16 @@ public:
     }
 
     pass++;
-    bool ret = false;
     AllocSites.clear();
 
     // Initialise the type assignments to known sizeof-returning functions.
     TypeAssigns = FunctionTypes;
+
+    // Propagate sizeof-returning functions.
+    for (auto it = FunctionTypes.begin(); it != FunctionTypes.end(); ++it) {
+      auto Func = cast<llvm::Function>(it->first);
+      propagateToUsers(nullptr, Func, it->second);
+    }
 
     // Loop through each use of __crunch__sizeof__().
     for (llvm::User *U : SizeofMarker->users()) {
