@@ -155,13 +155,56 @@ private:
     return Crunch::ArithType(UniqtypeStr);
   }
 
+  Crunch::ArithType getTypeFromCallToSizeofReturningFunc(CallInst *CallI) {
+    llvm::Function *CalledFunc = CallI->getCalledFunction();
+    if (!CalledFunc) {
+      fprintf(stderr,
+              "Warning: Call to indirect function in sizeof expression.\n");
+      return Crunch::ArithType();
+    }
+
+    // Avoid infinite recursion by keeping track of where we've been.
+    static std::set<llvm::Function *> VisitedFuncs;
+    if (VisitedFuncs.find(CalledFunc) != VisitedFuncs.end()) {
+      errs() << "Warning: Recursive sizeof-returning function: \'"
+             << CalledFunc->getName() << "()\'\n";
+      return Crunch::ArithType();
+    }
+    VisitedFuncs.insert(CalledFunc);
+
+    Crunch::ArithType ReturnType;
+
+    /* Find return instructions. We don't need to look through every single
+     * one, since they can only be at the end of basic blocks. */
+    auto &BBList = CalledFunc->getBasicBlockList();
+    for (auto it = BBList.begin();
+         it != BBList.end(); ++it) {
+      it->dump();
+      auto Term = it->getTerminator();
+      if (auto RetI = dyn_cast<ReturnInst>(Term)) {
+        if (auto RetVal = RetI->getReturnValue()) {
+          auto Ty = getType(RetVal);
+          /* If there are multiple return statements with different types,
+           * return void. */
+          if (!ReturnType.isVoid() && ReturnType != Ty) {
+            return Crunch::ArithType();
+          }
+          ReturnType = Ty;
+        }
+      }
+    }
+    return ReturnType;
+  }
+
   // Recurse backwards down the use-def chain to find out if this has a type.
   Crunch::ArithType getType(llvm::Value *Val) {
     // Base case: A potential __crunch_sizeof__ marker call.
     if (auto CallI = dyn_cast<CallInst>(Val)) {
       if (isSizeofMarker(CallI)) {
         return getTypeFromMarker(CallI);
-      } // TODO: Could be a sizeof-returning function.
+      } else { // It could be a sizeof-returning function.
+        return getTypeFromCallToSizeofReturningFunc(CallI);
+      }
     } else if (auto BinI = dyn_cast<BinaryOperator>(Val)) {
       llvm::Value *V1 = BinI->getOperand(0);
       llvm::Value *V2 = BinI->getOperand(1);
