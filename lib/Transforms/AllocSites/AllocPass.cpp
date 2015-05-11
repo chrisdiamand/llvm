@@ -140,11 +140,11 @@ private:
           return getAllocationFunction(StoreI->getValueOperand());
         }
       }
-    } else {
-      V = V->stripPointerCasts();
-      std::string Name = V->getName();
-      return Crunch::AllocFunction::get(Name);
     }
+
+    V = V->stripPointerCasts();
+    std::string Name = V->getName();
+    return Crunch::AllocFunction::get(Name);
   }
 
   bool handleCallInst(CallInst *I, Composite::ArithType &Uniqtype) {
@@ -215,7 +215,7 @@ private:
     // FunctionTypes[canonicalise(CurrentFunction)] = Ty;
   }
 
-  void handleBinaryOperator(BinaryOperator *I, llvm::User *From,
+  void handleBinaryOperator(BinaryOperator *I, llvm::Value *From,
                             Composite::ArithType &Ty)
   {
     /* `From' is the operand which already has a type. Find the other one, and
@@ -239,7 +239,7 @@ private:
     }
   }
 
-  void propagateToUsers(llvm::User *From, llvm::User *To,
+  void propagateToUsers(llvm::Value *From, llvm::Value *To,
                         Composite::ArithType &Ty)
   {
     if (auto Call = dyn_cast<CallInst>(To)) {
@@ -248,6 +248,16 @@ private:
       handleReturnInst(Ret, Ty);
     } else if (auto Bin = dyn_cast<BinaryOperator>(To)) {
       handleBinaryOperator(Bin, From, Ty);
+    } else if (auto StoreI = dyn_cast<StoreInst>(To)) {
+      for (User *U : StoreI->getPointerOperand()->users()) {
+        if (auto LoadI = dyn_cast<LoadInst>(U)) {
+          propagateToUsers(LoadI->getPointerOperand(), LoadI, Ty);
+        } else if (auto StoreI2 = dyn_cast<StoreInst>(U)) {
+          if (StoreI2 != StoreI) {
+            break;
+          }
+        }
+      }
     } else {
       for (llvm::User *U : To->users()) {
         propagateToUsers(To, U, Ty);
