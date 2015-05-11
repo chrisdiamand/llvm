@@ -10,7 +10,7 @@
 #include "llvm/Pass.h"
 #include "llvm/Transforms/AllocSites/AllocFunction.h"
 #include "llvm/Transforms/AllocSites/AllocSites.h"
-#include "llvm/Transforms/AllocSites/Composite.h"
+#include "llvm/Transforms/AllocSites/ArithType.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -50,14 +50,14 @@ static void closeOutputFiles() {
 
 class AllocSite {
 private:
-  llvm::Instruction   *Instr;
-  std::string         Name;
-  const Composite::ArithType     AllocType;
-  bool                Success;
+  llvm::Instruction         *Instr;
+  std::string               Name;
+  const Crunch::ArithType   AllocType;
+  bool                      Success;
 
 public:
   AllocSite(llvm::Instruction *_Instr, std::string _Name,
-            Composite::ArithType _AllocType, bool _Success) :
+            Crunch::ArithType _AllocType, bool _Success) :
     Instr(_Instr), Name(_Name), AllocType(_AllocType), Success(_Success) {};
 
   void emit(void) {
@@ -99,7 +99,7 @@ public:
   }
 };
 
-typedef std::map<Value *, Composite::ArithType> TypeMap;
+typedef std::map<Value *, Crunch::ArithType> TypeMap;
 
 class ModuleHandler {
 public:
@@ -148,7 +148,7 @@ private:
   }
 
   void handleCallInst(CallInst *I, llvm::Value *From,
-                      Composite::ArithType &Uniqtype)
+                      Crunch::ArithType &Uniqtype)
   {
     auto CalledVal = I->getCalledValue();
     if (auto AllocFun = getAllocationFunction(CalledVal)) {
@@ -162,9 +162,9 @@ private:
     }
   }
 
-  Composite::ArithType calcBinOpType(llvm::BinaryOperator *I,
-                                     const Composite::ArithType &T1,
-                                     const Composite::ArithType &T2)
+  Crunch::ArithType calcBinOpType(llvm::BinaryOperator *I,
+                                     const Crunch::ArithType &T1,
+                                     const Crunch::ArithType &T2)
   {
     assert(I->getNumOperands() == 2);
     switch (I->getOpcode()) {
@@ -178,21 +178,21 @@ private:
       case Instruction::UDiv:
         return T1.div(T2);
     }
-    return Composite::ArithType();
+    return Crunch::ArithType();
   }
 
   bool isSizeofMarker(llvm::CallInst *CallI) {
     return CallI->getCalledValue()->stripPointerCasts() == SizeofMarker;
   }
 
-  Composite::ArithType getTypeFromMarker(llvm::CallInst *CallI) {
+  Crunch::ArithType getTypeFromMarker(llvm::CallInst *CallI) {
     auto TypeArg = cast<ConstantDataArray>(CallI->getArgOperand(0));
     std::string UniqtypeStr = TypeArg->getAsString();
-    return Composite::ArithType(UniqtypeStr);
+    return Crunch::ArithType(UniqtypeStr);
   }
 
   // Recurse backwards down the use-def chain to find out if this has a type.
-  Composite::ArithType getType(llvm::Value *Val) {
+  Crunch::ArithType getType(llvm::Value *Val) {
     // Base case: A potential __crunch_sizeof__ marker call.
     if (auto CallI = dyn_cast<CallInst>(Val)) {
       if (isSizeofMarker(CallI)) {
@@ -204,28 +204,28 @@ private:
       return calcBinOpType(BinI, getType(V1), getType(V2));
     } else if (auto Inst = dyn_cast<Instruction>(Val)) {
       for (Use &U : Inst->operands()) {
-        Composite::ArithType Ty = getType(U.get());
+        Crunch::ArithType Ty = getType(U.get());
         if (!Ty.isVoid()) {
           return Ty;
         }
       }
     }
-    return Composite::ArithType();
+    return Crunch::ArithType();
   }
 
-  void handleReturnInst(ReturnInst *I, Composite::ArithType &Ty) {
+  void handleReturnInst(ReturnInst *I, Crunch::ArithType &Ty) {
     auto Func = I->getParent()->getParent();
     FunctionTypes[Func] = Ty;
   }
 
   void handleBinaryOperator(BinaryOperator *I, llvm::Value *From,
-                            Composite::ArithType &Ty)
+                            Crunch::ArithType &Ty)
   {
     /* `From' is the operand which already has a type. Find the other one, and
      * see if it has a type as well. */
     llvm::Value *V1 = I->getOperand(0);
     llvm::Value *V2 = I->getOperand(1);
-    Composite::ArithType T1, T2;
+    Crunch::ArithType T1, T2;
     // Find the type for the operand we didn't arrive from.
     if (From == V1) { // If we came from the first operand
       T1 = Ty;
@@ -236,14 +236,14 @@ private:
     } else {
       assert(false && "`From' not in I->operands");
     }
-    Composite::ArithType Result = calcBinOpType(I, T1, T2);
+    Crunch::ArithType Result = calcBinOpType(I, T1, T2);
     for (llvm::User *U : I->users()) {
       propagateToUsers(I, U, Result);
     }
   }
 
   void propagateToUsers(llvm::Value *From, llvm::Value *To,
-                        Composite::ArithType &Ty)
+                        Crunch::ArithType &Ty)
   {
     if (auto Call = dyn_cast<CallInst>(To)) {
       handleCallInst(Call, From, Ty);
@@ -273,7 +273,7 @@ private:
      * uniqtype. */
     auto CallI = cast<llvm::CallInst>(U);
     assert(isSizeofMarker(CallI));
-    Composite::ArithType Type = getTypeFromMarker(CallI);
+    Crunch::ArithType Type = getTypeFromMarker(CallI);
 
     for (llvm::User *U : CallI->users()) {
       propagateToUsers(CallI, U, Type);

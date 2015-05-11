@@ -1,8 +1,8 @@
 #include <iostream>
 
-#include "llvm/Transforms/AllocSites/Composite.h"
+#include "llvm/Transforms/AllocSites/ArithType.h"
 
-namespace Composite {
+namespace Crunch {
 
 const std::string BaseTypePtr::strComposite() const {
   std::string Ret = "";
@@ -299,4 +299,4 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const ArithType &T) {
   return OS;
 }
 
-} // namespace Composite
+} // namespace Crunch

@@ -7,7 +7,7 @@
 #include <iostream>
 #include <set>
 
-namespace Composite {
+namespace Crunch {
 
 /* In order to do arithmetic on `sizeof' types, represent them as sums of
  * fractions. This is _not_ recursive - there is no point having a full tree
