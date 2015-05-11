@@ -256,7 +256,11 @@ private:
   }
 
 public:
-  bool run() {
+  void run() {
+    if (SizeofMarker == nullptr) {
+      return;
+    }
+
     pass++;
     bool ret = false;
     AllocSites.clear();
@@ -274,8 +278,6 @@ public:
         propagateSizeofFromMarker(U);
       }
     }
-
-    return ret;
   }
 
   // Write all the allocation sites out.
@@ -295,6 +297,10 @@ private:
 
 public:
   void removeSizeofMarkers() {
+    if (SizeofMarker == nullptr) {
+      return;
+    }
+
     for (llvm::User *U : SizeofMarker->users()) {
       if (auto Cast = dyn_cast<llvm::BitCastOperator>(U)) {
         for (llvm::User *CastUser : Cast->users()) {
