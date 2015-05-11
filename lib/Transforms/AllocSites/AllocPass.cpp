@@ -130,9 +130,21 @@ private:
   /* If V is an llvm::Function referring to an allocation function, return its
    * AllocFunction information. */
   Crunch::AllocFunction *getAllocationFunction(llvm::Value *V) {
-    V = V->stripPointerCasts();
-    std::string Name = V->getName();
-    return Crunch::AllocFunction::get(Name);
+    if (auto LoadI = dyn_cast<LoadInst>(V)) {
+      Value *Src = LoadI->getPointerOperand();
+      // There has to be a preceding store.
+      for (llvm::User *U : Src->users()) {
+        if (auto StoreI = dyn_cast<StoreInst>(U)) {
+          /* TODO: What happens when there are multiple stores to the same
+           * address? */
+          return getAllocationFunction(StoreI->getValueOperand());
+        }
+      }
+    } else {
+      V = V->stripPointerCasts();
+      std::string Name = V->getName();
+      return Crunch::AllocFunction::get(Name);
+    }
   }
 
   bool handleCallInst(CallInst *I, Composite::ArithType &Uniqtype) {
