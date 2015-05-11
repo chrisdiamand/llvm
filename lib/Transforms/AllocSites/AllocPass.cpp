@@ -148,41 +148,83 @@ private:
     return true;
   }
 
-  bool runOnBinaryOperator(llvm::BinaryOperator *I) {
+  Composite::ArithType calcBinOpType(llvm::BinaryOperator *I,
+                                     const Composite::ArithType &T1,
+                                     const Composite::ArithType &T2)
+  {
     assert(I->getNumOperands() == 2);
-    /*
-    llvm::Value *V1 = I->getOperand(0);
-    llvm::Value *V2 = I->getOperand(1);
-
-    if (!hasType(V1) && !hasType(V2)) {
-      return false;
-    }
-
     switch (I->getOpcode()) {
       case Instruction::Add:
-        setType(I, getType(V1).add(getType(V2)));
-        break;
+        return T1.add(T2);
       case Instruction::Sub:
-        setType(I, getType(V1).sub(getType(V2)));
-        break;
+        return T1.sub(T2);
       case Instruction::Mul:
-        setType(I, getType(V1).mul(getType(V2)));
-        break;
+        return T1.mul(T2);
       case Instruction::SDiv:
       case Instruction::UDiv:
-        setType(I, getType(V1).div(getType(V2)));
-        break;
+        return T1.div(T2);
     }
-    */
-    return false;
+    return Composite::ArithType();
+  }
+
+  bool isSizeofMarker(llvm::CallInst *CallI) {
+    return CallI->getCalledValue()->stripPointerCasts() == SizeofMarker;
+  }
+
+  Composite::ArithType getTypeFromMarker(llvm::CallInst *CallI) {
+    auto TypeArg = cast<ConstantDataArray>(CallI->getArgOperand(0));
+    std::string UniqtypeStr = TypeArg->getAsString();
+    return Composite::ArithType(UniqtypeStr);
+  }
+
+  // Recurse backwards down the use-def chain to find out if this has a type.
+  Composite::ArithType getType(llvm::Value *Val) {
+    // Base case: A potential __crunch_sizeof__ marker call.
+    if (auto CallI = dyn_cast<CallInst>(Val)) {
+      if (isSizeofMarker(CallI)) {
+        return getTypeFromMarker(CallI);
+      } // TODO: Could be a sizeof-returning function.
+    } else if (auto BinI = dyn_cast<BinaryOperator>(Val)) {
+      llvm::Value *V1 = BinI->getOperand(0);
+      llvm::Value *V2 = BinI->getOperand(1);
+      return calcBinOpType(BinI, getType(V1), getType(V2));
+    } else if (auto Inst = dyn_cast<Instruction>(Val)) {
+      for (Use &U : Inst->operands()) {
+        Composite::ArithType Ty = getType(U.get());
+        if (!Ty.isVoid()) {
+          return Ty;
+        }
+      }
+    }
+    return Composite::ArithType();
   }
 
   void handleReturnInst(ReturnInst *I, Composite::ArithType &Ty) {
     // FunctionTypes[canonicalise(CurrentFunction)] = Ty;
   }
 
-  void handleBinaryOperator(BinaryOperator *I, Composite::ArithType &Ty) {
-    ;
+  void handleBinaryOperator(BinaryOperator *I, llvm::User *From,
+                            Composite::ArithType &Ty)
+  {
+    /* `From' is the operand which already has a type. Find the other one, and
+     * see if it has a type as well. */
+    llvm::Value *V1 = I->getOperand(0);
+    llvm::Value *V2 = I->getOperand(1);
+    Composite::ArithType T1, T2;
+    // Find the type for the operand we didn't arrive from.
+    if (From == V1) { // If we came from the first operand
+      T1 = Ty;
+      T2 = getType(V2);
+    } else if (From == V2) { // We came from the second operand
+      T1 = getType(V1);
+      T2 = Ty;
+    } else {
+      assert(false && "`From' not in I->operands");
+    }
+    Composite::ArithType Result = calcBinOpType(I, T1, T2);
+    for (llvm::User *U : I->users()) {
+      propagateToUsers(I, U, Result);
+    }
   }
 
   void propagateToUsers(llvm::User *From, llvm::User *To,
@@ -193,7 +235,7 @@ private:
     } else if (auto Ret = dyn_cast<ReturnInst>(To)) {
       handleReturnInst(Ret, Ty);
     } else if (auto Bin = dyn_cast<BinaryOperator>(To)) {
-      handleBinaryOperator(Bin, Ty);
+      handleBinaryOperator(Bin, From, Ty);
     } else {
       for (llvm::User *U : To->users()) {
         propagateToUsers(To, U, Ty);
@@ -204,13 +246,12 @@ private:
   void propagateSizeofFromMarker(llvm::User *U) {
     /* Get the first argument from the call - this contains the name of the
      * uniqtype. */
-    auto Call = cast<llvm::CallInst>(U);
-    auto TypeArg = cast<ConstantDataArray>(Call->getArgOperand(0));
-    std::string UniqtypeStr = TypeArg->getAsString();
-    Composite::ArithType Type(UniqtypeStr);
+    auto CallI = cast<llvm::CallInst>(U);
+    assert(isSizeofMarker(CallI));
+    Composite::ArithType Type = getTypeFromMarker(CallI);
 
-    for (llvm::User *U : Call->users()) {
-      propagateToUsers(Call, U, Type);
+    for (llvm::User *U : CallI->users()) {
+      propagateToUsers(CallI, U, Type);
     }
   }
 
