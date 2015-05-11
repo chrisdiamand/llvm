@@ -6,6 +6,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Operator.h"
 #include "llvm/Pass.h"
 #include "llvm/Transforms/AllocSites/AllocFunction.h"
 #include "llvm/Transforms/AllocSites/AllocSites.h"
@@ -112,187 +113,44 @@ public:
     }
   }
 
-  /* We also need to preserve the __crunch_sizeof__ call information between
-   * passes, since the calls are removed in the first pass. */
-  TypeMap SizeofTypes;
-
 private:
-  llvm::Module &TheModule;
-  Function *CurrentFunction;
-  llvm::LLVMContext &VMContext;
-  TypeMap TypeAssigns;
-  std::map<Value *, Crunch::AllocFunction *> AllocAssigns;
-  std::vector<CallInst *> InstructionsToRemove;
-  int pass; // How many passes have been run.
-  std::vector<AllocSite> AllocSites;
+  llvm::Module            &TheModule;
+  Function                *CurrentFunction;
+  llvm::LLVMContext       &VMContext;
+  TypeMap                 TypeAssigns;
+  llvm::Function          *SizeofMarker;
+  int                     pass; // How many passes have been run.
+  std::vector<AllocSite>  AllocSites;
 
   void dumpTypeMap() {
     errs() << "Types:\n";
     dumpTypeMap(TypeAssigns);
   }
 
-  void dumpAllocMap() {
-    errs() << "Allocs:\n";
-    for (auto it = AllocAssigns.begin(); it != AllocAssigns.end(); ++it) {
-      errs() << "  " << it->second->getName() << ": ";
-      it->first->dump();
-    }
-  }
-
-  llvm::Value *canonicalise(llvm::Value *V) {
-    assert(V != nullptr);
-    auto ret = V->stripPointerCasts();
-    return ret;
-  }
-
-  bool hasType(llvm::Value *Key) {
-    return TypeAssigns.find(canonicalise(Key)) != TypeAssigns.end();
-  }
-
-  const Composite::ArithType getType(llvm::Value *Key) {
-    Key = canonicalise(Key);
-    if (TypeAssigns.find(Key) != TypeAssigns.end()) {
-      return TypeAssigns[Key];
-    }
-    return Composite::ArithType();
-  }
-
-  void setType(llvm::Value *Key, const Composite::ArithType Val, bool Store = false) {
-    Key = canonicalise(Key);
-    /* Generally, things should only be assigned once, since it's SSA.
-     * Sizeof-returning functions persist between passes though so may be
-     * overwritten. This doesn't apply to store instructions, since the same
-     * memory address could be overwritten many times. */
-    if (!Store && TypeAssigns.find(Key) != TypeAssigns.end() &&
-        FunctionTypes.find(Key) == FunctionTypes.end()) {
-      errs() << "Error: Value \'" << Key->getName() << "\' assigned twice!\n";
-      Key->dump();
-      errs() << "Old type: \'" << getType(Key) << "\'\n";
-      errs() << "New type: \'" << Val << "\'\n";
-      dumpTypeMap();
-      assert(false && "SSA Value assigned twice.");
-    }
-    TypeAssigns[Key] = Val;
-  }
-
-  void propagateType(llvm::Value *Src, llvm::Value *Dst, bool Store = false) {
-    if (hasType(Src)) {
-      setType(Dst, getType(Src), Store);
-    }
-  }
-
-  void handleCrunchSizeofCall(CallInst *I) {
-    // This should only happen on the first pass - the calls should have been
-    // removed after that.
-    assert(pass == 1);
-
-    /* Replace the call instruction with its second argument. We can't
-     * actually remove it here though since the iterator gets confused. */
-    Value *SizeArg = I->getArgOperand(1);
-    auto UniqueSize = llvm::BinaryOperator::Create(
-                        Instruction::Add,
-                        SizeArg,
-                        llvm::ConstantInt::get(SizeArg->getType(), 0),
-                        "sizeof");
-    UniqueSize->insertAfter(I);
-
-    I->replaceAllUsesWith(UniqueSize);
-    InstructionsToRemove.push_back(I);
-
-    /* Now associate the type with the size argument. We don't need to
-     * associate the CallInst as well, since we've removed it. */
-    auto TypeArg = cast<ConstantDataArray>(I->getArgOperand(0));
-    std::string UniqtypeStr = TypeArg->getAsString();
-    Composite::ArithType ArithType(UniqtypeStr);
-    setType(UniqueSize, ArithType);
-
-    // Add it to SizeofTypes as well so it will be preserved for the next pass.
-    assert(SizeofTypes.find(UniqueSize) == SizeofTypes.end());
-    SizeofTypes[UniqueSize] = ArithType;
-  }
-
+  /* If V is an llvm::Function referring to an allocation function, return its
+   * AllocFunction information. */
   Crunch::AllocFunction *getAllocationFunction(llvm::Value *V) {
-    if (V != nullptr && AllocAssigns.find(V) != AllocAssigns.end()) {
-      return AllocAssigns[V];
-    }
-
-    // Sometimes the sizeof marker function is surrounded by a bitcast.
     V = V->stripPointerCasts();
     std::string Name = V->getName();
     return Crunch::AllocFunction::get(Name);
   }
 
-  bool handleAllocation(CallInst *I) {
+  bool handleCallInst(CallInst *I, Composite::ArithType &Uniqtype) {
     auto AllocFun = getAllocationFunction(I->getCalledValue());
     if (AllocFun == NULL) {
       // Not an allocation function so did nothing; return false.
       return false;
     }
 
-    unsigned SizeArgIndex = AllocFun->getSizeArg();
-    assert(SizeArgIndex < I->getNumArgOperands());
-    llvm::Value *SizeArg = I->getArgOperand(SizeArgIndex);
-
-    bool success = false;
-    Composite::ArithType Uniqtype;
-
-    if (TypeAssigns.find(SizeArg) != TypeAssigns.end()) {
-      success = true;
-      Uniqtype = getType(SizeArg);
-    }
-
-    AllocSite AS(I, AllocFun->getName(), Uniqtype, success);
+    AllocSite AS(I, AllocFun->getName(), Uniqtype, true);
     AllocSites.push_back(AS);
 
     return true;
   }
 
-  bool runOnCallInst(CallInst *I) {
-    auto CalledVal = I->getCalledValue();
-    auto CalledFun = dyn_cast<llvm::Function>(CalledVal->stripPointerCasts());
-
-    if (handleAllocation(I)) {
-      return false;
-
-    } else if (CalledFun != nullptr &&
-               CalledFun->getName() == "__crunch_sizeof__") {
-      handleCrunchSizeofCall(I);
-      return true;
-    } else if (hasType(CalledVal)) {
-      // Some function return sizeof expressions.
-      propagateType(CalledVal, I);
-    }
-
-    return false;
-  }
-
-  bool runOnStoreInst(StoreInst *I) {
-    Value *Src = I->getValueOperand();
-    Value *Dst = I->getPointerOperand();
-
-    propagateType(Src, Dst, true);
-
-    if (auto AF = getAllocationFunction(Src)) {
-      AllocAssigns[Dst] = AllocAssigns[Src] = AF;
-    }
-
-    return false;
-  }
-
-  bool runOnLoadInst(LoadInst *I) {
-    Value *Src = I->getPointerOperand();
-    assert(Src != nullptr);
-    propagateType(Src, I);
-
-    if (auto AF = getAllocationFunction(Src)) {
-      AllocAssigns[I] = AF;
-    }
-
-    return false;
-  }
-
   bool runOnBinaryOperator(llvm::BinaryOperator *I) {
     assert(I->getNumOperands() == 2);
+    /*
     llvm::Value *V1 = I->getOperand(0);
     llvm::Value *V2 = I->getOperand(1);
 
@@ -315,65 +173,45 @@ private:
         setType(I, getType(V1).div(getType(V2)));
         break;
     }
+    */
     return false;
   }
 
-  bool runOnAllocaInst(llvm::AllocaInst *I) {
-    Value *Arg = I->getArraySize();
-    if (hasType(Arg)) {
-      AllocSite AS(I, "__builtin_alloca", getType(Arg), true);
-      AllocSites.push_back(AS);
-    }
-    return false;
+  void handleReturnInst(ReturnInst *I, Composite::ArithType &Ty) {
+    // FunctionTypes[canonicalise(CurrentFunction)] = Ty;
   }
 
-  bool runOnReturnInst(llvm::ReturnInst *I) {
-    Value *RetVal = I->getReturnValue();
-    if (RetVal != nullptr) {
-      propagateType(RetVal, CurrentFunction);
+  void handleBinaryOperator(BinaryOperator *I, Composite::ArithType &Ty) {
+    ;
+  }
 
-      if (hasType(RetVal)) {
-        FunctionTypes[canonicalise(CurrentFunction)] = getType(RetVal);
+  void propagateToUsers(llvm::User *From, llvm::User *To,
+                        Composite::ArithType &Ty)
+  {
+    if (auto Call = dyn_cast<CallInst>(To)) {
+      handleCallInst(Call, Ty);
+    } else if (auto Ret = dyn_cast<ReturnInst>(To)) {
+      handleReturnInst(Ret, Ty);
+    } else if (auto Bin = dyn_cast<BinaryOperator>(To)) {
+      handleBinaryOperator(Bin, Ty);
+    } else {
+      for (llvm::User *U : To->users()) {
+        propagateToUsers(To, U, Ty);
       }
     }
-    return false;
   }
 
-  bool runOnInstruction(Instruction *I) {
-    if (auto CallI = dyn_cast<CallInst>(I)) {
-      return runOnCallInst(CallI);
-    } else if (auto StoreI = dyn_cast<StoreInst>(I)) {
-      return runOnStoreInst(StoreI);
-    } else if (auto LoadI = dyn_cast<LoadInst>(I)) {
-      return runOnLoadInst(LoadI);
-    } else if (auto BinI = dyn_cast<BinaryOperator>(I)) {
-      return runOnBinaryOperator(BinI);
-    } else if (auto AllocaI = dyn_cast<AllocaInst>(I)) {
-      return runOnAllocaInst(AllocaI);
-    } else if (auto RetI = dyn_cast<ReturnInst>(I)) {
-      return runOnReturnInst(RetI);
-    }
-    return false;
-  }
+  void propagateSizeofFromMarker(llvm::User *U) {
+    /* Get the first argument from the call - this contains the name of the
+     * uniqtype. */
+    auto Call = cast<llvm::CallInst>(U);
+    auto TypeArg = cast<ConstantDataArray>(Call->getArgOperand(0));
+    std::string UniqtypeStr = TypeArg->getAsString();
+    Composite::ArithType Type(UniqtypeStr);
 
-  bool runOnBasicBlock(BasicBlock &B) {
-    bool ret = false;
-    for (auto it = B.begin(); it != B.end(); ++it) {
-      ret = runOnInstruction(&(*it)) | ret;
+    for (llvm::User *U : Call->users()) {
+      propagateToUsers(Call, U, Type);
     }
-    return ret;
-  }
-
-  bool runOnFunction(Function &Func) {
-    CurrentFunction = &Func;
-    auto &BBList = Func.getBasicBlockList();
-    bool ret = false;
-    for (auto it = BBList.begin();
-         it != BBList.end(); ++it) {
-      ret = runOnBasicBlock(*it) | ret;
-    }
-
-    return ret;
   }
 
 public:
@@ -382,21 +220,19 @@ public:
     bool ret = false;
     AllocSites.clear();
 
-    /* Initialise the type assignments to known sizeof-returning functions, and
-     * the preserved info from __crunch_sizeof__ marker calls. */
+    // Initialise the type assignments to known sizeof-returning functions.
     TypeAssigns = FunctionTypes;
-    TypeAssigns.insert(SizeofTypes.begin(), SizeofTypes.end());
 
-    auto &FunList = TheModule.getFunctionList();
-    for (auto it = FunList.begin(); it != FunList.end(); ++it) {
-      ret = runOnFunction(*it) | ret;
+    // Loop through each use of __crunch__sizeof__().
+    for (llvm::User *U : SizeofMarker->users()) {
+      if (auto Cast = dyn_cast<llvm::BitCastOperator>(U)) {
+        for (llvm::User *CastUser : Cast->users()) {
+          propagateSizeofFromMarker(CastUser);
+        }
+      } else {
+        propagateSizeofFromMarker(U);
+      }
     }
-
-    for (auto it = InstructionsToRemove.begin();
-         it != InstructionsToRemove.end(); ++it) {
-      (*it)->eraseFromParent();
-    }
-    InstructionsToRemove.clear();
 
     return ret;
   }
@@ -408,8 +244,32 @@ public:
     }
   }
 
+private:
+  void removeSizeofMarker(llvm::User *U) {
+    auto Call = cast<llvm::CallInst>(U);
+    Value *SizeArg = Call->getArgOperand(1);
+    Call->replaceAllUsesWith(SizeArg);
+    Call->eraseFromParent();
+  }
+
+public:
+  void removeSizeofMarkers() {
+    for (llvm::User *U : SizeofMarker->users()) {
+      if (auto Cast = dyn_cast<llvm::BitCastOperator>(U)) {
+        for (llvm::User *CastUser : Cast->users()) {
+          removeSizeofMarker(CastUser);
+        }
+      } else {
+        removeSizeofMarker(U);
+      }
+    }
+  }
+
   ModuleHandler(Module &M) :
-    TheModule(M), VMContext(M.getContext()), pass(0) {};
+    TheModule(M), VMContext(M.getContext()), pass(0)
+  {
+    SizeofMarker = M.getFunction("__crunch_sizeof__");
+  }
 };
 
 struct AllocSitesPass : public ModulePass {
@@ -417,7 +277,6 @@ struct AllocSitesPass : public ModulePass {
   AllocSitesPass() : ModulePass(ID) {}
 
   bool runOnModule(Module &M) override {
-    bool ret = false;
     /* Stop iterating when there have been more passes that there are
      * sizeof-returning function. */
     size_t PassCount = 0;
@@ -426,14 +285,15 @@ struct AllocSitesPass : public ModulePass {
     TypeMap PrevFunctionTypes;
     do {
       PrevFunctionTypes = Handler.FunctionTypes;
-      ret = Handler.run() | ret;
+      Handler.run();
     } while (PrevFunctionTypes != Handler.FunctionTypes &&
              PassCount++ < Handler.FunctionTypes.size());
 
     Handler.emit();
+    Handler.removeSizeofMarkers();
     closeOutputFiles();
 
-    return ret;
+    return true;
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
