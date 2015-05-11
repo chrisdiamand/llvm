@@ -98,33 +98,12 @@ public:
   }
 };
 
-typedef std::map<Value *, Crunch::ArithType> TypeMap;
-
 class ModuleHandler {
-public:
-  /* This is a subset of TypeAssigns. Use it to monitor if any sizeof-returning
-   * functions have changed - if they have, do another pass. */
-  TypeMap FunctionTypes;
-
-  void dumpTypeMap(TypeMap &TM) {
-    for (auto it = TM.begin(); it != TM.end(); ++it) {
-      errs() << "  " << it->second << ": " << it->first->getName() << "\n";
-    }
-  }
-
 private:
   llvm::Module            &TheModule;
-  Function                *CurrentFunction;
   llvm::LLVMContext       &VMContext;
-  TypeMap                 TypeAssigns;
   llvm::Function          *SizeofMarker;
-  int                     pass; // How many passes have been run.
   std::vector<AllocSite>  AllocSites;
-
-  void dumpTypeMap() {
-    errs() << "Types:\n";
-    dumpTypeMap(TypeAssigns);
-  }
 
   Crunch::ArithType calcBinOpType(llvm::BinaryOperator *I,
                                      const Crunch::ArithType &T1,
@@ -220,11 +199,6 @@ private:
     return Crunch::ArithType();
   }
 
-  void handleReturnInst(ReturnInst *I, Crunch::ArithType &Ty) {
-    auto Func = I->getParent()->getParent();
-    FunctionTypes[Func] = Ty;
-  }
-
   /* Recurse the def-use chain of each allocation function, stopping when an
    * allocation site is reached. */
   void findAllocSite(llvm::Value *Prev, llvm::Value *Val,
@@ -259,11 +233,7 @@ public:
       return;
     }
 
-    pass++;
     AllocSites.clear();
-
-    // Initialise the type assignments to known sizeof-returning functions.
-    TypeAssigns = FunctionTypes;
 
     // Loop through all the allocation functions.
     for (auto it = Crunch::AllocFunction::getAll().begin();
@@ -312,7 +282,7 @@ public:
   }
 
   ModuleHandler(Module &M) :
-    TheModule(M), VMContext(M.getContext()), pass(0)
+    TheModule(M), VMContext(M.getContext())
   {
     SizeofMarker = M.getFunction("__crunch_sizeof__");
   }
@@ -323,18 +293,8 @@ struct AllocSitesPass : public ModulePass {
   AllocSitesPass() : ModulePass(ID) {}
 
   bool runOnModule(Module &M) override {
-    /* Stop iterating when there have been more passes that there are
-     * sizeof-returning function. */
-    size_t PassCount = 0;
-
     ModuleHandler Handler(M);
-    TypeMap PrevFunctionTypes;
-    do {
-      PrevFunctionTypes = Handler.FunctionTypes;
-      Handler.run();
-    } while (PrevFunctionTypes != Handler.FunctionTypes &&
-             PassCount++ < Handler.FunctionTypes.size());
-
+    Handler.run();
     Handler.emit();
     Handler.removeSizeofMarkers();
     closeOutputFiles();
