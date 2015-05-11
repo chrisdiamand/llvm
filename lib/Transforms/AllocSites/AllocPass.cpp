@@ -53,12 +53,11 @@ private:
   llvm::Instruction         *Instr;
   std::string               Name;
   const Crunch::ArithType   AllocType;
-  bool                      Success;
 
 public:
   AllocSite(llvm::Instruction *_Instr, std::string _Name,
-            Crunch::ArithType _AllocType, bool _Success) :
-    Instr(_Instr), Name(_Name), AllocType(_AllocType), Success(_Success) {};
+            Crunch::ArithType _AllocType) :
+    Instr(_Instr), Name(_Name), AllocType(_AllocType) {};
 
   void emit(void) {
     if (AllocType.isVoid()) {
@@ -127,41 +126,6 @@ private:
     dumpTypeMap(TypeAssigns);
   }
 
-  /* If V is an llvm::Function referring to an allocation function, return its
-   * AllocFunction information. */
-  Crunch::AllocFunction *getAllocationFunction(llvm::Value *V) {
-    if (auto LoadI = dyn_cast<LoadInst>(V)) {
-      Value *Src = LoadI->getPointerOperand();
-      // There has to be a preceding store.
-      for (llvm::User *U : Src->users()) {
-        if (auto StoreI = dyn_cast<StoreInst>(U)) {
-          /* TODO: What happens when there are multiple stores to the same
-           * address? */
-          return getAllocationFunction(StoreI->getValueOperand());
-        }
-      }
-    }
-
-    V = V->stripPointerCasts();
-    std::string Name = V->getName();
-    return Crunch::AllocFunction::get(Name);
-  }
-
-  void handleCallInst(CallInst *I, llvm::Value *From,
-                      Crunch::ArithType &Uniqtype)
-  {
-    auto CalledVal = I->getCalledValue();
-    if (auto AllocFun = getAllocationFunction(CalledVal)) {
-      AllocSite AS(I, AllocFun->getName(), Uniqtype, true);
-      AllocSites.push_back(AS);
-    } else if (CalledVal == From) { /* If the type came from the callee, then
-                                     * it was a sizeof-returning function. */
-      for (User *U : I->users()) {
-        propagateToUsers(I, U, Uniqtype);
-      }
-    }
-  }
-
   Crunch::ArithType calcBinOpType(llvm::BinaryOperator *I,
                                      const Crunch::ArithType &T1,
                                      const Crunch::ArithType &T2)
@@ -218,65 +182,31 @@ private:
     FunctionTypes[Func] = Ty;
   }
 
-  void handleBinaryOperator(BinaryOperator *I, llvm::Value *From,
-                            Crunch::ArithType &Ty)
+  /* Recurse the def-use chain of each allocation function, stopping when an
+   * allocation site is reached. */
+  void findAllocSite(llvm::Value *Prev, llvm::Value *Val,
+                     Crunch::AllocFunction *AF)
   {
-    /* `From' is the operand which already has a type. Find the other one, and
-     * see if it has a type as well. */
-    llvm::Value *V1 = I->getOperand(0);
-    llvm::Value *V2 = I->getOperand(1);
-    Crunch::ArithType T1, T2;
-    // Find the type for the operand we didn't arrive from.
-    if (From == V1) { // If we came from the first operand
-      T1 = Ty;
-      T2 = getType(V2);
-    } else if (From == V2) { // We came from the second operand
-      T1 = getType(V1);
-      T2 = Ty;
-    } else {
-      assert(false && "`From' not in I->operands");
-    }
-    Crunch::ArithType Result = calcBinOpType(I, T1, T2);
-    for (llvm::User *U : I->users()) {
-      propagateToUsers(I, U, Result);
-    }
-  }
+    if (auto CallI = dyn_cast<CallInst>(Val)) {
+      if (Prev != CallI->getCalledValue()) {
+        return;
+      }
+      // We've found an allocation site.
+      assert(AF->getSizeArg() < CallI->getNumArgOperands());
+      llvm::Value *SizeArg = CallI->getArgOperand(AF->getSizeArg());
+      AllocSite AS(CallI, AF->getName(), getType(SizeArg));
+      AllocSites.push_back(AS);
 
-  void propagateToUsers(llvm::Value *From, llvm::Value *To,
-                        Crunch::ArithType &Ty)
-  {
-    if (auto Call = dyn_cast<CallInst>(To)) {
-      handleCallInst(Call, From, Ty);
-    } else if (auto Ret = dyn_cast<ReturnInst>(To)) {
-      handleReturnInst(Ret, Ty);
-    } else if (auto Bin = dyn_cast<BinaryOperator>(To)) {
-      handleBinaryOperator(Bin, From, Ty);
-    } else if (auto StoreI = dyn_cast<StoreInst>(To)) {
+    } else if (auto StoreI = dyn_cast<StoreInst>(Val)) {
       for (User *U : StoreI->getPointerOperand()->users()) {
         if (auto LoadI = dyn_cast<LoadInst>(U)) {
-          propagateToUsers(LoadI->getPointerOperand(), LoadI, Ty);
-        } else if (auto StoreI2 = dyn_cast<StoreInst>(U)) {
-          if (StoreI2 != StoreI) {
-            break;
+          for (User *LoadU : LoadI->users()) {
+            if (LoadU != StoreI) {
+              findAllocSite(LoadI, LoadU, AF);
+            }
           }
         }
       }
-    } else {
-      for (llvm::User *U : To->users()) {
-        propagateToUsers(To, U, Ty);
-      }
-    }
-  }
-
-  void propagateSizeofFromMarker(llvm::User *U) {
-    /* Get the first argument from the call - this contains the name of the
-     * uniqtype. */
-    auto CallI = cast<llvm::CallInst>(U);
-    assert(isSizeofMarker(CallI));
-    Crunch::ArithType Type = getTypeFromMarker(CallI);
-
-    for (llvm::User *U : CallI->users()) {
-      propagateToUsers(CallI, U, Type);
     }
   }
 
@@ -292,20 +222,16 @@ public:
     // Initialise the type assignments to known sizeof-returning functions.
     TypeAssigns = FunctionTypes;
 
-    // Propagate sizeof-returning functions.
-    for (auto it = FunctionTypes.begin(); it != FunctionTypes.end(); ++it) {
-      auto Func = cast<llvm::Function>(it->first);
-      propagateToUsers(nullptr, Func, it->second);
-    }
-
-    // Loop through each use of __crunch__sizeof__().
-    for (llvm::User *U : SizeofMarker->users()) {
-      if (auto Cast = dyn_cast<llvm::BitCastOperator>(U)) {
-        for (llvm::User *CastUser : Cast->users()) {
-          propagateSizeofFromMarker(CastUser);
-        }
-      } else {
-        propagateSizeofFromMarker(U);
+    // Loop through all the allocation functions.
+    for (auto it = Crunch::AllocFunction::getAll().begin();
+         it != Crunch::AllocFunction::getAll().end(); ++it)
+    {
+      llvm::Function *Func = TheModule.getFunction(it->first);
+      if (Func == nullptr) {
+        continue;
+      }
+      for (llvm::User *U : Func->users()) {
+        findAllocSite(Func, U, it->second);
       }
     }
   }

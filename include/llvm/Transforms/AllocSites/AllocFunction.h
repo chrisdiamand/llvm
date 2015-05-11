@@ -6,6 +6,10 @@
 
 namespace Crunch {
 
+class AllocFunction;
+
+typedef std::map<std::string, AllocFunction *> AllocFunctionMap;
+
 class AllocFunction {
 private:
   unsigned int SizeArgIndex = 0;
@@ -15,15 +19,18 @@ private:
   void parseDescr(const std::string &);
   AllocFunction(const std::string &);
 
-  static std::map<std::string, AllocFunction *> Functions;
+  static AllocFunctionMap Functions;
+
   static void add(const std::string &);
   static void addFromEnvironment(const std::string &);
   static void addFunctions();
 
 public:
+
   unsigned int getSizeArg();
   std::string getName();
 
+  static AllocFunctionMap &getAll();
   static AllocFunction *get(const std::string &);
 };
 

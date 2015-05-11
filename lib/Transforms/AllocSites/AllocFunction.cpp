@@ -103,4 +103,9 @@ unsigned int AllocFunction::getSizeArg() {
   return SizeArgIndex;
 }
 
+AllocFunctionMap &AllocFunction::getAll() {
+  addFunctions();
+  return Functions;
+}
+
 } // namespace Crunch
