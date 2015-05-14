@@ -100,10 +100,11 @@ public:
 
 class ModuleHandler {
 private:
-  llvm::Module            &TheModule;
-  llvm::LLVMContext       &VMContext;
-  llvm::Function          *SizeofMarker;
-  std::vector<AllocSite>  AllocSites;
+  llvm::Module                &TheModule;
+  llvm::LLVMContext           &VMContext;
+  llvm::Function              *SizeofMarker;
+  std::vector<AllocSite>      AllocSites;
+  std::set<llvm::Function *>  VisitedFuncs;
 
   Crunch::ArithType calcBinOpType(llvm::BinaryOperator *I,
                                      const Crunch::ArithType &T1,
@@ -143,7 +144,6 @@ private:
     }
 
     // Avoid infinite recursion by keeping track of where we've been.
-    static std::set<llvm::Function *> VisitedFuncs;
     if (VisitedFuncs.find(CalledFunc) != VisitedFuncs.end()) {
       errs() << "Warning: Recursive sizeof-returning function: \'"
              << CalledFunc->getName() << "()\'\n";
@@ -158,7 +158,6 @@ private:
     auto &BBList = CalledFunc->getBasicBlockList();
     for (auto it = BBList.begin();
          it != BBList.end(); ++it) {
-      it->dump();
       auto Term = it->getTerminator();
       if (auto RetI = dyn_cast<ReturnInst>(Term)) {
         if (auto RetVal = RetI->getReturnValue()) {
@@ -244,6 +243,7 @@ public:
         continue;
       }
       for (llvm::User *U : Func->users()) {
+        VisitedFuncs.clear();
         findAllocSite(Func, U, it->second);
       }
     }
