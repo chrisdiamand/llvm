@@ -172,8 +172,8 @@ void SlotIndexes::repairIndexesInRange(MachineBasicBlock *MBB,
   // optionally includes an additional position prior to MBB->begin(), indicated
   // by the includeStart flag. This is done so that we can iterate MIs in a MBB
   // in parallel with SlotIndexes, but there should be a better way to do this.
-  IndexList::iterator ListB = startIdx.listEntry();
-  IndexList::iterator ListI = endIdx.listEntry();
+  IndexList::iterator ListB = startIdx.listEntry()->getIterator();
+  IndexList::iterator ListI = endIdx.listEntry()->getIterator();
   MachineBasicBlock::iterator MBBI = End;
   bool pastStart = false;
   while (ListI != ListB || MBBI != Begin || (includeStart && !pastStart)) {
@@ -214,7 +214,7 @@ void SlotIndexes::repairIndexesInRange(MachineBasicBlock *MBB,
 }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
-void SlotIndexes::dump() const {
+LLVM_DUMP_METHOD void SlotIndexes::dump() const {
   for (IndexList::const_iterator itr = indexList.begin();
        itr != indexList.end(); ++itr) {
     dbgs() << itr->getIndex() << " ";
@@ -242,7 +242,7 @@ void SlotIndex::print(raw_ostream &os) const {
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 // Dump a SlotIndex to stderr.
-void SlotIndex::dump() const {
+LLVM_DUMP_METHOD void SlotIndex::dump() const {
   print(dbgs());
   dbgs() << "\n";
 }

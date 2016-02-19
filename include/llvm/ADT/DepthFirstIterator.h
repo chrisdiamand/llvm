@@ -58,7 +58,6 @@ public:
   SetType &Visited;
 };
 
-
 // Generic Depth First Iterator
 template<class GraphT,
 class SetType = llvm::SmallPtrSet<typename GraphTraits<GraphT>::NodeType*, 8>,
@@ -76,21 +75,22 @@ class df_iterator : public std::iterator<std::forward_iterator_tag,
   // VisitStack - Used to maintain the ordering.  Top = current block
   // First element is node pointer, second is the 'next child' to visit
   // if the int in PointerIntTy is 0, the 'next child' to visit is invalid
-  std::vector<std::pair<PointerIntTy, ChildItTy> > VisitStack;
+  std::vector<std::pair<PointerIntTy, ChildItTy>> VisitStack;
+
 private:
   inline df_iterator(NodeType *Node) {
     this->Visited.insert(Node);
-    VisitStack.push_back(std::make_pair(PointerIntTy(Node, 0), 
-                                        GT::child_begin(Node)));
+    VisitStack.push_back(
+        std::make_pair(PointerIntTy(Node, 0), GT::child_begin(Node)));
   }
-  inline df_iterator() { 
-    // End is when stack is empty 
+  inline df_iterator() {
+    // End is when stack is empty
   }
   inline df_iterator(NodeType *Node, SetType &S)
     : df_iterator_storage<SetType, ExtStorage>(S) {
     if (!S.count(Node)) {
-      VisitStack.push_back(std::make_pair(PointerIntTy(Node, 0), 
-                                          GT::child_begin(Node)));
+      VisitStack.push_back(
+          std::make_pair(PointerIntTy(Node, 0), GT::child_begin(Node)));
       this->Visited.insert(Node);
     }
   }
@@ -115,8 +115,8 @@ private:
         // Has our next sibling been visited?
         if (Next && this->Visited.insert(Next).second) {
           // No, do it now.
-          VisitStack.push_back(std::make_pair(PointerIntTy(Next, 0), 
-                                              GT::child_begin(Next)));
+          VisitStack.push_back(
+              std::make_pair(PointerIntTy(Next, 0), GT::child_begin(Next)));
           return;
         }
       }
@@ -159,8 +159,10 @@ public:
     return *this;
   }
 
-  // skips all children of the current node and traverses to next node
-  //
+  /// \brief Skips all children of the current node and traverses to next node
+  ///
+  /// Note: This function takes care of incrementing the iterator. If you
+  /// always increment and call this function, you risk walking off the end.
   df_iterator &skipChildren() {
     VisitStack.pop_back();
     if (!VisitStack.empty())
@@ -193,7 +195,6 @@ public:
   }
 };
 
-
 // Provide global constructors that automatically figure out correct types...
 //
 template <class T>
@@ -209,7 +210,7 @@ df_iterator<T> df_end(const T& G) {
 // Provide an accessor method to use them in range-based patterns.
 template <class T>
 iterator_range<df_iterator<T>> depth_first(const T& G) {
-  return iterator_range<df_iterator<T>>(df_begin(G), df_end(G));
+  return make_range(df_begin(G), df_end(G));
 }
 
 // Provide global definitions of external depth first iterators...
@@ -232,10 +233,8 @@ df_ext_iterator<T, SetTy> df_ext_end(const T& G, SetTy &S) {
 template <class T, class SetTy>
 iterator_range<df_ext_iterator<T, SetTy>> depth_first_ext(const T& G,
                                                           SetTy &S) {
-  return iterator_range<df_ext_iterator<T, SetTy>>(df_ext_begin(G, S),
-                                                   df_ext_end(G, S));
+  return make_range(df_ext_begin(G, S), df_ext_end(G, S));
 }
-
 
 // Provide global definitions of inverse depth first iterators...
 template <class T,
@@ -259,7 +258,7 @@ idf_iterator<T> idf_end(const T& G){
 // Provide an accessor method to use them in range-based patterns.
 template <class T>
 iterator_range<idf_iterator<T>> inverse_depth_first(const T& G) {
-  return iterator_range<idf_iterator<T>>(idf_begin(G), idf_end(G));
+  return make_range(idf_begin(G), idf_end(G));
 }
 
 // Provide global definitions of external inverse depth first iterators...
@@ -284,8 +283,7 @@ idf_ext_iterator<T, SetTy> idf_ext_end(const T& G, SetTy &S) {
 template <class T, class SetTy>
 iterator_range<idf_ext_iterator<T, SetTy>> inverse_depth_first_ext(const T& G,
                                                                    SetTy &S) {
-  return iterator_range<idf_ext_iterator<T, SetTy>>(idf_ext_begin(G, S),
-                                                    idf_ext_end(G, S));
+  return make_range(idf_ext_begin(G, S), idf_ext_end(G, S));
 }
 
 } // End llvm namespace

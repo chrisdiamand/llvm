@@ -243,6 +243,8 @@ protected:
     this->Roots.clear();
     Vertex.clear();
     RootNode = nullptr;
+    DFSInfoValid = false;
+    SlowQueries = 0;
   }
 
   // NewBB is split and now it has one successor. Update dominator tree to
@@ -369,8 +371,9 @@ public:
   void releaseMemory() { reset(); }
 
   /// getNode - return the (Post)DominatorTree node for the specified basic
-  /// block.  This is the same as using operator[] on this class.
-  ///
+  /// block.  This is the same as using operator[] on this class.  The result
+  /// may (but is not required to) be null for a forward (backwards)
+  /// statically unreachable block.
   DomTreeNodeBase<NodeT> *getNode(NodeT *BB) const {
     auto I = DomTreeNodes.find(BB);
     if (I != DomTreeNodes.end())
@@ -378,6 +381,7 @@ public:
     return nullptr;
   }
 
+  /// See getNode.
   DomTreeNodeBase<NodeT> *operator[](NodeT *BB) const { return getNode(BB); }
 
   /// getRootNode - This returns the entry node for the CFG of the function.  If
@@ -637,9 +641,38 @@ protected:
   friend void
   Calculate(DominatorTreeBase<typename GraphTraits<N>::NodeType> &DT, FuncT &F);
 
+
+  DomTreeNodeBase<NodeT> *getNodeForBlock(NodeT *BB) {
+    if (DomTreeNodeBase<NodeT> *Node = getNode(BB))
+      return Node;
+
+    // Haven't calculated this node yet?  Get or calculate the node for the
+    // immediate dominator.
+    NodeT *IDom = getIDom(BB);
+
+    assert(IDom || this->DomTreeNodes[nullptr]);
+    DomTreeNodeBase<NodeT> *IDomNode = getNodeForBlock(IDom);
+
+    // Add a new tree node for this NodeT, and link it as a child of
+    // IDomNode
+    return (this->DomTreeNodes[BB] = IDomNode->addChild(
+                llvm::make_unique<DomTreeNodeBase<NodeT>>(BB, IDomNode))).get();
+  }
+
+  NodeT *getIDom(NodeT *BB) const { return IDoms.lookup(BB); }
+
+  void addRoot(NodeT *BB) { this->Roots.push_back(BB); }
+
+public:
   /// updateDFSNumbers - Assign In and Out numbers to the nodes while walking
   /// dominator tree in dfs order.
   void updateDFSNumbers() const {
+
+    if (DFSInfoValid) {
+      SlowQueries = 0;
+      return;
+    }
+
     unsigned DFSNum = 0;
 
     SmallVector<std::pair<const DomTreeNodeBase<NodeT> *,
@@ -682,28 +715,6 @@ protected:
     DFSInfoValid = true;
   }
 
-  DomTreeNodeBase<NodeT> *getNodeForBlock(NodeT *BB) {
-    if (DomTreeNodeBase<NodeT> *Node = getNode(BB))
-      return Node;
-
-    // Haven't calculated this node yet?  Get or calculate the node for the
-    // immediate dominator.
-    NodeT *IDom = getIDom(BB);
-
-    assert(IDom || this->DomTreeNodes[nullptr]);
-    DomTreeNodeBase<NodeT> *IDomNode = getNodeForBlock(IDom);
-
-    // Add a new tree node for this NodeT, and link it as a child of
-    // IDomNode
-    return (this->DomTreeNodes[BB] = IDomNode->addChild(
-                llvm::make_unique<DomTreeNodeBase<NodeT>>(BB, IDomNode))).get();
-  }
-
-  NodeT *getIDom(NodeT *BB) const { return IDoms.lookup(BB); }
-
-  void addRoot(NodeT *BB) { this->Roots.push_back(BB); }
-
-public:
   /// recalculate - compute a dominator tree for the given function
   template <class FT> void recalculate(FT &F) {
     typedef GraphTraits<FT *> TraitsTy;
@@ -713,24 +724,16 @@ public:
     if (!this->IsPostDominators) {
       // Initialize root
       NodeT *entry = TraitsTy::getEntryNode(&F);
-      this->Roots.push_back(entry);
-      this->IDoms[entry] = nullptr;
-      this->DomTreeNodes[entry] = nullptr;
+      addRoot(entry);
 
       Calculate<FT, NodeT *>(*this, F);
     } else {
       // Initialize the roots list
       for (typename TraitsTy::nodes_iterator I = TraitsTy::nodes_begin(&F),
                                              E = TraitsTy::nodes_end(&F);
-           I != E; ++I) {
-        if (TraitsTy::child_begin(I) == TraitsTy::child_end(I))
-          addRoot(I);
-
-        // Prepopulate maps so that we don't get iterator invalidation issues
-        // later.
-        this->IDoms[I] = nullptr;
-        this->DomTreeNodes[I] = nullptr;
-      }
+           I != E; ++I)
+        if (TraitsTy::child_begin(&*I) == TraitsTy::child_end(&*I))
+          addRoot(&*I);
 
       Calculate<FT, Inverse<NodeT *>>(*this, F);
     }

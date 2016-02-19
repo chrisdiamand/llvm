@@ -16,6 +16,7 @@
 #define LLVM_LIB_CODEGEN_SELECTIONDAG_STATEPOINTLOWERING_H
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include <vector>
@@ -30,8 +31,7 @@ class SelectionDAGBuilder;
 /// works in concert with information in FunctionLoweringInfo.
 class StatepointLoweringState {
 public:
-  StatepointLoweringState() : NextSlotToAllocate(0) {
-  }
+  StatepointLoweringState() : NextSlotToAllocate(0) {}
 
   /// Reset all state tracking for a newly encountered safepoint.  Also
   /// performs some consistency checking.
@@ -55,25 +55,6 @@ public:
     assert(!Locations.count(val) &&
            "Trying to allocate already allocated location");
     Locations[val] = Location;
-  }
-
-  /// Returns the relocated value for a given input pointer. Will
-  /// return SDValue() if this value hasn't yet been reloaded from
-  /// it's stack slot after the statepoint.  Otherwise, the value
-  /// has already been reloaded and the SDValue of that reload will
-  /// be returned. Note that VMState values are spilled but not
-  /// reloaded (since they don't change at the safepoint unless
-  /// also listed in the GC pointer section) and will thus never
-  /// be in this map
-  SDValue getRelocLocation(SDValue val) {
-    if (!RelocLocations.count(val))
-      return SDValue();
-    return RelocLocations[val];
-  }
-  void setRelocLocation(SDValue val, SDValue Location) {
-    assert(!RelocLocations.count(val) &&
-           "Trying to allocate already allocated location");
-    RelocLocations[val] = Location;
   }
 
   /// Record the fact that we expect to encounter a given gc_relocate
@@ -104,28 +85,26 @@ public:
   void reserveStackSlot(int Offset) {
     assert(Offset >= 0 && Offset < (int)AllocatedStackSlots.size() &&
            "out of bounds");
-    assert(!AllocatedStackSlots[Offset] && "already reserved!");
+    assert(!AllocatedStackSlots.test(Offset) && "already reserved!");
     assert(NextSlotToAllocate <= (unsigned)Offset && "consistency!");
-    AllocatedStackSlots[Offset] = true;
+    AllocatedStackSlots.set(Offset);
   }
   bool isStackSlotAllocated(int Offset) {
     assert(Offset >= 0 && Offset < (int)AllocatedStackSlots.size() &&
            "out of bounds");
-    return AllocatedStackSlots[Offset];
+    return AllocatedStackSlots.test(Offset);
   }
 
 private:
   /// Maps pre-relocation value (gc pointer directly incoming into statepoint)
   /// into it's location (currently only stack slots)
   DenseMap<SDValue, SDValue> Locations;
-  /// Map pre-relocated value into it's new relocated location
-  DenseMap<SDValue, SDValue> RelocLocations;
 
   /// A boolean indicator for each slot listed in the FunctionInfo as to
   /// whether it has been used in the current statepoint.  Since we try to
   /// preserve stack slots across safepoints, there can be gaps in which
   /// slots have been allocated.
-  SmallVector<bool, 50> AllocatedStackSlots;
+  SmallBitVector AllocatedStackSlots;
 
   /// Points just beyond the last slot known to have been allocated
   unsigned NextSlotToAllocate;

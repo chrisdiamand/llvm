@@ -207,12 +207,12 @@ namespace llvm {
                           const TargetLibraryInfo *TLI = nullptr,
                           const DominatorTree *DT = nullptr,
                           AssumptionCache *AC = nullptr,
-                          Instruction *CxtI = nullptr);
+                          const Instruction *CxtI = nullptr);
 
   /// SimplifyFCmpInst - Given operands for an FCmpInst, see if we can
   /// fold the result.  If not, this returns null.
   Value *SimplifyFCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
-                          const DataLayout &DL,
+                          FastMathFlags FMF, const DataLayout &DL,
                           const TargetLibraryInfo *TLI = nullptr,
                           const DominatorTree *DT = nullptr,
                           AssumptionCache *AC = nullptr,
@@ -229,7 +229,8 @@ namespace llvm {
 
   /// SimplifyGEPInst - Given operands for an GetElementPtrInst, see if we can
   /// fold the result.  If not, this returns null.
-  Value *SimplifyGEPInst(ArrayRef<Value *> Ops, const DataLayout &DL,
+  Value *SimplifyGEPInst(Type *SrcTy, ArrayRef<Value *> Ops,
+                         const DataLayout &DL,
                          const TargetLibraryInfo *TLI = nullptr,
                          const DominatorTree *DT = nullptr,
                          AssumptionCache *AC = nullptr,
@@ -243,6 +244,24 @@ namespace llvm {
                                  const DominatorTree *DT = nullptr,
                                  AssumptionCache *AC = nullptr,
                                  const Instruction *CxtI = nullptr);
+
+  /// \brief Given operands for an ExtractValueInst, see if we can fold the
+  /// result.  If not, this returns null.
+  Value *SimplifyExtractValueInst(Value *Agg, ArrayRef<unsigned> Idxs,
+                                  const DataLayout &DL,
+                                  const TargetLibraryInfo *TLI = nullptr,
+                                  const DominatorTree *DT = nullptr,
+                                  AssumptionCache *AC = nullptr,
+                                  const Instruction *CxtI = nullptr);
+
+  /// \brief Given operands for an ExtractElementInst, see if we can fold the
+  /// result.  If not, this returns null.
+  Value *SimplifyExtractElementInst(Value *Vec, Value *Idx,
+                                    const DataLayout &DL,
+                                    const TargetLibraryInfo *TLI = nullptr,
+                                    const DominatorTree *DT = nullptr,
+                                    AssumptionCache *AC = nullptr,
+                                    const Instruction *CxtI = nullptr);
 
   /// SimplifyTruncInst - Given operands for an TruncInst, see if we can fold
   /// the result.  If not, this returns null.

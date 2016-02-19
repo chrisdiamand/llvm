@@ -4,14 +4,14 @@
 ; header in this case.
 
 ; CHECK: jmp LBB0_2
-; CHECK: .align
+; CHECK: .p2align
 ; CHECK: LBB0_1:
 
 @A = common global [100 x i32] zeroinitializer, align 32		; <[100 x i32]*> [#uses=1]
 
 define i8* @test(i8* %Q, i32* %L) nounwind {
 entry:
-	%tmp = tail call i32 (...)* @foo() nounwind		; <i32> [#uses=2]
+	%tmp = tail call i32 (...) @foo() nounwind		; <i32> [#uses=2]
 	%tmp1 = inttoptr i32 %tmp to i8*		; <i8*> [#uses=1]
 	br label %bb1
 

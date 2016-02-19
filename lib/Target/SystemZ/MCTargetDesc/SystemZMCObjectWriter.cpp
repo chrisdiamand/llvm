@@ -20,12 +20,12 @@ class SystemZObjectWriter : public MCELFObjectTargetWriter {
 public:
   SystemZObjectWriter(uint8_t OSABI);
 
-  virtual ~SystemZObjectWriter();
+  ~SystemZObjectWriter() override;
 
 protected:
   // Override MCELFObjectTargetWriter.
-  unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
-                        bool IsPCRel) const override;
+  unsigned getRelocType(MCContext &Ctx, const MCValue &Target,
+                        const MCFixup &Fixup, bool IsPCRel) const override;
 };
 } // end anonymous namespace
 
@@ -106,7 +106,8 @@ static unsigned getPLTReloc(unsigned Kind) {
   llvm_unreachable("Unsupported absolute address");
 }
 
-unsigned SystemZObjectWriter::GetRelocType(const MCValue &Target,
+unsigned SystemZObjectWriter::getRelocType(MCContext &Ctx,
+                                           const MCValue &Target,
                                            const MCFixup &Fixup,
                                            bool IsPCRel) const {
   MCSymbolRefExpr::VariantKind Modifier = Target.getAccessVariant();
@@ -152,7 +153,7 @@ unsigned SystemZObjectWriter::GetRelocType(const MCValue &Target,
   }
 }
 
-MCObjectWriter *llvm::createSystemZObjectWriter(raw_ostream &OS,
+MCObjectWriter *llvm::createSystemZObjectWriter(raw_pwrite_stream &OS,
                                                 uint8_t OSABI) {
   MCELFObjectTargetWriter *MOTW = new SystemZObjectWriter(OSABI);
   return createELFObjectWriter(MOTW, OS, /*IsLittleEndian=*/false);

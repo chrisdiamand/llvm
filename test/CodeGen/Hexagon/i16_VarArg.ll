@@ -1,4 +1,4 @@
-; RUN: llc -march=hexagon < %s | FileCheck %s
+; RUN: llc -march=hexagon -mcpu=hexagonv4 < %s | FileCheck %s
 ; CHECK: call __hexagon_{{[A-Z_a-z0-9]+}}
 
 @a_str = internal constant [8 x i8] c"a = %f\0A\00"
@@ -35,6 +35,6 @@ define i32 @main() {
         %ge_s = getelementptr [13 x i8], [13 x i8]* @ge_str, i64 0, i64 0
         %eq_s = getelementptr [13 x i8], [13 x i8]* @eq_str, i64 0, i64 0
         %ne_s = getelementptr [13 x i8], [13 x i8]* @ne_str, i64 0, i64 0
-        call i32 (i8*, ...)* @printf( i8* %lt_s, i16 %val1 )
+        call i32 (i8*, ...) @printf( i8* %lt_s, i16 %val1 )
         ret i32 0
 }

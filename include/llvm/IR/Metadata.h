@@ -18,19 +18,20 @@
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/ilist_node.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/IR/Constant.h"
-#include "llvm/IR/MetadataTracking.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <type_traits>
 
 namespace llvm {
+
 class LLVMContext;
 class Module;
-template<typename ValueSubClass, typename ItemParentClass>
-  class SymbolTableListTraits;
+class ModuleSlotTracker;
 
 enum LLVMConstants : uint32_t {
   DEBUG_METADATA_VERSION = 3 // Current debug info version number.
@@ -59,37 +60,40 @@ protected:
 public:
   enum MetadataKind {
     MDTupleKind,
-    MDLocationKind,
-    GenericDebugNodeKind,
-    MDSubrangeKind,
-    MDEnumeratorKind,
-    MDBasicTypeKind,
-    MDDerivedTypeKind,
-    MDCompositeTypeKind,
-    MDSubroutineTypeKind,
-    MDFileKind,
-    MDCompileUnitKind,
-    MDSubprogramKind,
-    MDLexicalBlockKind,
-    MDLexicalBlockFileKind,
-    MDNamespaceKind,
-    MDTemplateTypeParameterKind,
-    MDTemplateValueParameterKind,
-    MDGlobalVariableKind,
-    MDLocalVariableKind,
-    MDExpressionKind,
-    MDObjCPropertyKind,
-    MDImportedEntityKind,
+    DILocationKind,
+    GenericDINodeKind,
+    DISubrangeKind,
+    DIEnumeratorKind,
+    DIBasicTypeKind,
+    DIDerivedTypeKind,
+    DICompositeTypeKind,
+    DISubroutineTypeKind,
+    DIFileKind,
+    DICompileUnitKind,
+    DISubprogramKind,
+    DILexicalBlockKind,
+    DILexicalBlockFileKind,
+    DINamespaceKind,
+    DIModuleKind,
+    DITemplateTypeParameterKind,
+    DITemplateValueParameterKind,
+    DIGlobalVariableKind,
+    DILocalVariableKind,
+    DIExpressionKind,
+    DIObjCPropertyKind,
+    DIImportedEntityKind,
     ConstantAsMetadataKind,
     LocalAsMetadataKind,
-    MDStringKind
+    MDStringKind,
+    DIMacroKind,
+    DIMacroFileKind
   };
 
 protected:
   Metadata(unsigned ID, StorageType Storage)
       : SubclassID(ID), Storage(Storage), SubclassData16(0), SubclassData32(0) {
   }
-  ~Metadata() {}
+  ~Metadata() = default;
 
   /// \brief Default handling of a changed operand, which asserts.
   ///
@@ -121,7 +125,12 @@ public:
   ///
   /// If \c M is provided, metadata nodes will be numbered canonically;
   /// otherwise, pointer addresses are substituted.
-  void print(raw_ostream &OS, const Module *M = nullptr) const;
+  /// @{
+  void print(raw_ostream &OS, const Module *M = nullptr,
+             bool IsForDebug = false) const;
+  void print(raw_ostream &OS, ModuleSlotTracker &MST, const Module *M = nullptr,
+             bool IsForDebug = false) const;
+  /// @}
 
   /// \brief Print as operand.
   ///
@@ -129,7 +138,11 @@ public:
   ///
   /// If \c M is provided, metadata nodes will be numbered canonically;
   /// otherwise, pointer addresses are substituted.
+  /// @{
   void printAsOperand(raw_ostream &OS, const Module *M = nullptr) const;
+  void printAsOperand(raw_ostream &OS, ModuleSlotTracker &MST,
+                      const Module *M = nullptr) const;
+  /// @}
 };
 
 #define HANDLE_METADATA(CLASS) class CLASS;
@@ -164,7 +177,7 @@ class MetadataAsValue : public Value {
   Metadata *MD;
 
   MetadataAsValue(Type *Ty, Metadata *MD);
-  ~MetadataAsValue();
+  ~MetadataAsValue() override;
 
   /// \brief Drop use of metadata (during teardown).
   void dropUse() { MD = nullptr; }
@@ -184,6 +197,77 @@ private:
   void untrack();
 };
 
+/// \brief API for tracking metadata references through RAUW and deletion.
+///
+/// Shared API for updating \a Metadata pointers in subclasses that support
+/// RAUW.
+///
+/// This API is not meant to be used directly.  See \a TrackingMDRef for a
+/// user-friendly tracking reference.
+class MetadataTracking {
+public:
+  /// \brief Track the reference to metadata.
+  ///
+  /// Register \c MD with \c *MD, if the subclass supports tracking.  If \c *MD
+  /// gets RAUW'ed, \c MD will be updated to the new address.  If \c *MD gets
+  /// deleted, \c MD will be set to \c nullptr.
+  ///
+  /// If tracking isn't supported, \c *MD will not change.
+  ///
+  /// \return true iff tracking is supported by \c MD.
+  static bool track(Metadata *&MD) {
+    return track(&MD, *MD, static_cast<Metadata *>(nullptr));
+  }
+
+  /// \brief Track the reference to metadata for \a Metadata.
+  ///
+  /// As \a track(Metadata*&), but with support for calling back to \c Owner to
+  /// tell it that its operand changed.  This could trigger \c Owner being
+  /// re-uniqued.
+  static bool track(void *Ref, Metadata &MD, Metadata &Owner) {
+    return track(Ref, MD, &Owner);
+  }
+
+  /// \brief Track the reference to metadata for \a MetadataAsValue.
+  ///
+  /// As \a track(Metadata*&), but with support for calling back to \c Owner to
+  /// tell it that its operand changed.  This could trigger \c Owner being
+  /// re-uniqued.
+  static bool track(void *Ref, Metadata &MD, MetadataAsValue &Owner) {
+    return track(Ref, MD, &Owner);
+  }
+
+  /// \brief Stop tracking a reference to metadata.
+  ///
+  /// Stops \c *MD from tracking \c MD.
+  static void untrack(Metadata *&MD) { untrack(&MD, *MD); }
+  static void untrack(void *Ref, Metadata &MD);
+
+  /// \brief Move tracking from one reference to another.
+  ///
+  /// Semantically equivalent to \c untrack(MD) followed by \c track(New),
+  /// except that ownership callbacks are maintained.
+  ///
+  /// Note: it is an error if \c *MD does not equal \c New.
+  ///
+  /// \return true iff tracking is supported by \c MD.
+  static bool retrack(Metadata *&MD, Metadata *&New) {
+    return retrack(&MD, *MD, &New);
+  }
+  static bool retrack(void *Ref, Metadata &MD, void *New);
+
+  /// \brief Check whether metadata is replaceable.
+  static bool isReplaceable(const Metadata &MD);
+
+  typedef PointerUnion<MetadataAsValue *, Metadata *> OwnerTy;
+
+private:
+  /// \brief Track a reference to metadata for an owner.
+  ///
+  /// Generalized version of tracking.
+  static bool track(void *Ref, Metadata &MD, OwnerTy Owner);
+};
+
 /// \brief Shared implementation of use-lists for replaceable metadata.
 ///
 /// Most metadata cannot be RAUW'ed.  This is a shared implementation of
@@ -199,13 +283,19 @@ private:
   LLVMContext &Context;
   uint64_t NextIndex;
   SmallDenseMap<void *, std::pair<OwnerTy, uint64_t>, 4> UseMap;
+  /// Flag that can be set to false if this metadata should not be
+  /// RAUW'ed, e.g. if it is used as the key of a map.
+  bool CanReplace;
 
 public:
   ReplaceableMetadataImpl(LLVMContext &Context)
-      : Context(Context), NextIndex(0) {}
+      : Context(Context), NextIndex(0), CanReplace(true) {}
   ~ReplaceableMetadataImpl() {
     assert(UseMap.empty() && "Cannot destroy in-use replaceable metadata");
   }
+
+  /// Set the CanReplace flag to the given value.
+  void setCanReplace(bool Replaceable) { CanReplace = Replaceable; }
 
   LLVMContext &getContext() const { return Context; }
 
@@ -253,7 +343,7 @@ protected:
       : Metadata(ID, Uniqued), ReplaceableMetadataImpl(V->getContext()), V(V) {
     assert(V && "Expected valid value");
   }
-  ~ValueAsMetadata() {}
+  ~ValueAsMetadata() = default;
 
 public:
   static ValueAsMetadata *get(Value *V);
@@ -560,10 +650,12 @@ struct AAMDNodes {
 template<>
 struct DenseMapInfo<AAMDNodes> {
   static inline AAMDNodes getEmptyKey() {
-    return AAMDNodes(DenseMapInfo<MDNode *>::getEmptyKey(), 0, 0);
+    return AAMDNodes(DenseMapInfo<MDNode *>::getEmptyKey(),
+                     nullptr, nullptr);
   }
   static inline AAMDNodes getTombstoneKey() {
-    return AAMDNodes(DenseMapInfo<MDNode *>::getTombstoneKey(), 0, 0);
+    return AAMDNodes(DenseMapInfo<MDNode *>::getTombstoneKey(),
+                     nullptr, nullptr);
   }
   static unsigned getHashValue(const AAMDNodes &Val) {
     return DenseMapInfo<MDNode *>::getHashValue(Val.TBAA) ^
@@ -754,7 +846,7 @@ protected:
 
   MDNode(LLVMContext &Context, unsigned ID, StorageType Storage,
          ArrayRef<Metadata *> Ops1, ArrayRef<Metadata *> Ops2 = None);
-  ~MDNode() {}
+  ~MDNode() = default;
 
   void dropAllReferences();
 
@@ -815,13 +907,29 @@ public:
     Context.getReplaceableUses()->replaceAllUsesWith(MD);
   }
 
+  /// Set the CanReplace flag to the given value.
+  void setCanReplace(bool Replaceable) {
+    Context.getReplaceableUses()->setCanReplace(Replaceable);
+  }
+
   /// \brief Resolve cycles.
   ///
   /// Once all forward declarations have been resolved, force cycles to be
-  /// resolved.
+  /// resolved. This interface is used when there are no more temporaries,
+  /// and thus unresolved nodes are part of cycles and no longer need RAUW
+  /// support.
   ///
   /// \pre No operands (or operands' operands, etc.) have \a isTemporary().
-  void resolveCycles();
+  void resolveCycles() { resolveRecursivelyImpl(/* AllowTemps */ false); }
+
+  /// \brief Resolve cycles while ignoring temporaries.
+  ///
+  /// This drops RAUW support for any temporaries, which can no longer
+  /// be uniqued.
+  ///
+  void resolveNonTemporaries() {
+    resolveRecursivelyImpl(/* AllowTemps */ true);
+  }
 
   /// \brief Replace a temporary node with a permanent one.
   ///
@@ -869,6 +977,7 @@ protected:
   void storeDistinctInContext();
   template <class T, class StoreT>
   static T *storeImpl(T *N, StorageType Storage, StoreT &Store);
+  template <class T> static T *storeImpl(T *N, StorageType Storage);
 
 private:
   void handleChangedOperand(void *Ref, Metadata *New);
@@ -877,6 +986,11 @@ private:
   void resolveAfterOperandChange(Metadata *Old, Metadata *New);
   void decrementUnresolvedOperandCount();
   unsigned countUnresolvedOperands();
+
+  /// Resolve cycles recursively. If \p AllowTemps is true, then any temporary
+  /// metadata is ignored, otherwise it asserts when encountering temporary
+  /// metadata.
+  void resolveRecursivelyImpl(bool AllowTemps);
 
   /// \brief Mutate this to be "uniqued".
   ///
@@ -901,13 +1015,13 @@ private:
     N->recalculateHash();
   }
   template <class NodeTy>
-  static void dispatchRecalculateHash(NodeTy *N, std::false_type) {}
+  static void dispatchRecalculateHash(NodeTy *, std::false_type) {}
   template <class NodeTy>
   static void dispatchResetHash(NodeTy *N, std::true_type) {
     N->setHash(0);
   }
   template <class NodeTy>
-  static void dispatchResetHash(NodeTy *N, std::false_type) {}
+  static void dispatchResetHash(NodeTy *, std::false_type) {}
 
 public:
   typedef const MDOperand *op_iterator;
@@ -951,6 +1065,8 @@ public:
   static MDNode *getMostGenericFPMath(MDNode *A, MDNode *B);
   static MDNode *getMostGenericRange(MDNode *A, MDNode *B);
   static MDNode *getMostGenericAliasScope(MDNode *A, MDNode *B);
+  static MDNode *getMostGenericAlignmentOrDereferenceable(MDNode *A, MDNode *B);
+
 };
 
 /// \brief Tuple of metadata.
@@ -1113,7 +1229,6 @@ public:
 ///
 /// TODO: Inherit from Metadata.
 class NamedMDNode : public ilist_node<NamedMDNode> {
-  friend class SymbolTableListTraits<NamedMDNode, Module>;
   friend struct ilist_traits<NamedMDNode>;
   friend class LLVMContextImpl;
   friend class Module;
@@ -1181,7 +1296,7 @@ public:
   void addOperand(MDNode *M);
   void setOperand(unsigned I, MDNode *New);
   StringRef getName() const;
-  void print(raw_ostream &ROS) const;
+  void print(raw_ostream &ROS, bool IsForDebug = false) const;
   void dump() const;
 
   // ---------------------------------------------------------------------------
@@ -1196,13 +1311,13 @@ public:
   const_op_iterator op_end()   const { return const_op_iterator(this, getNumOperands()); }
 
   inline iterator_range<op_iterator>  operands() {
-    return iterator_range<op_iterator>(op_begin(), op_end());
+    return make_range(op_begin(), op_end());
   }
   inline iterator_range<const_op_iterator> operands() const {
-    return iterator_range<const_op_iterator>(op_begin(), op_end());
+    return make_range(op_begin(), op_end());
   }
 };
 
 } // end llvm namespace
 
-#endif
+#endif // LLVM_IR_METADATA_H

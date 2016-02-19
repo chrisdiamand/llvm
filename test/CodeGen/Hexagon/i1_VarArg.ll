@@ -1,4 +1,4 @@
-; RUN: llc -march=hexagon < %s | FileCheck %s
+; RUN: llc -march=hexagon -mcpu=hexagonv4 < %s | FileCheck %s
 ; CHECK: call __hexagon_{{[_A-Za-z0-9]+}}
 
 @a_str = internal constant [8 x i8] c"a = %f\0A\00"
@@ -34,11 +34,11 @@ define i32 @main() {
         %ge_s = getelementptr [13 x i8], [13 x i8]* @ge_str, i64 0, i64 0
         %eq_s = getelementptr [13 x i8], [13 x i8]* @eq_str, i64 0, i64 0
         %ne_s = getelementptr [13 x i8], [13 x i8]* @ne_str, i64 0, i64 0
-        call i32 (i8*, ...)* @printf( i8* %lt_s, i1 %lt_r )
-        call i32 (i8*, ...)* @printf( i8* %le_s, i1 %le_r )
-        call i32 (i8*, ...)* @printf( i8* %gt_s, i1 %gt_r )
-        call i32 (i8*, ...)* @printf( i8* %ge_s, i1 %ge_r )
-        call i32 (i8*, ...)* @printf( i8* %eq_s, i1 %eq_r )
-        call i32 (i8*, ...)* @printf( i8* %ne_s, i1 %ne_r )
+        call i32 (i8*, ...) @printf( i8* %lt_s, i1 %lt_r )
+        call i32 (i8*, ...) @printf( i8* %le_s, i1 %le_r )
+        call i32 (i8*, ...) @printf( i8* %gt_s, i1 %gt_r )
+        call i32 (i8*, ...) @printf( i8* %ge_s, i1 %ge_r )
+        call i32 (i8*, ...) @printf( i8* %eq_s, i1 %eq_r )
+        call i32 (i8*, ...) @printf( i8* %ne_s, i1 %ne_r )
         ret i32 0
 }

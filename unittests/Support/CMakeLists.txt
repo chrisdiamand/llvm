@@ -31,6 +31,7 @@ add_llvm_unittest(SupportTests
   ProcessTest.cpp
   ProgramTest.cpp
   RegexTest.cpp
+  ReplaceFileTest.cpp
   ScaledNumberTest.cpp
   SourceMgrTest.cpp
   SpecialCaseListTest.cpp
@@ -38,12 +39,16 @@ add_llvm_unittest(SupportTests
   StringPool.cpp
   SwapByteOrderTest.cpp
   ThreadLocalTest.cpp
+  ThreadPool.cpp
+  TimerTest.cpp
   TimeValueTest.cpp
+  TrailingObjectsTest.cpp
   UnicodeTest.cpp
   YAMLIOTest.cpp
   YAMLParserTest.cpp
   formatted_raw_ostream_test.cpp
   raw_ostream_test.cpp
+  raw_pwrite_stream_test.cpp
   )
 
 # ManagedStatic.cpp uses <pthread>.

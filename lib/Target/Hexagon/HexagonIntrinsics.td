@@ -676,6 +676,7 @@ def  : Pat <(int_hexagon_A2_tfrih (I32:$Rs), u16_0ImmPred:$Is),
 //  Transfer Register/immediate.
 def : T_R_pat <A2_tfr, int_hexagon_A2_tfr>;
 def : T_I_pat <A2_tfrsi, int_hexagon_A2_tfrsi>;
+def : T_I_pat <A2_tfrpi, int_hexagon_A2_tfrpi>;
 
 // Assembler mapped from Rdd32=Rss32 to Rdd32=combine(Rss.H32,Rss.L32)
 def : Pat<(int_hexagon_A2_tfrp DoubleRegs:$src),
@@ -922,6 +923,10 @@ def: qi_CRInst_qiqi_pat<C2_andn,  int_hexagon_C2_andn>;
 def: qi_CRInst_qiqi_pat<C2_or,    int_hexagon_C2_or>;
 def: qi_CRInst_qiqi_pat<C2_orn,   int_hexagon_C2_orn>;
 def: qi_CRInst_qiqi_pat<C2_xor,   int_hexagon_C2_xor>;
+
+// Assembler mapped from  Pd4=Ps4 to Pd4=or(Ps4,Ps4)
+def : Pat<(int_hexagon_C2_pxfer_map PredRegs:$src),
+          (C2_pxfer_map PredRegs:$src)>;
 
 // Multiply 32x32 and use lower result
 def : T_RRI_pat <M2_macsip, int_hexagon_M2_macsip>;
@@ -1246,7 +1251,6 @@ def : T_PR_pat <S2_asl_r_vw, int_hexagon_S2_asl_r_vw>;
 def : T_PR_pat <S2_lsl_r_vw, int_hexagon_S2_lsl_r_vw>;
 
 // Vector shift words with truncate and pack
-
 def : T_PR_pat <S2_asr_r_svw_trun, int_hexagon_S2_asr_r_svw_trun>;
 
 def : T_R_pat<L2_loadw_locked, int_hexagon_L2_loadw_locked>;
@@ -1263,24 +1267,25 @@ def: Pat<(i32 (int_hexagon_S4_stored_locked (I32:$Rs), (I64:$Rt))),
 
 class T_stb_pat <InstHexagon MI, Intrinsic IntID, PatLeaf Val>
   : Pat<(IntID I32:$Rs, Val:$Rt, I32:$Ru),
-        (MI I32:$Rs, Val:$Rt, I32:$Ru)>;
+        (MI I32:$Rs, (A2_tfrrcr I32:$Ru), Val:$Rt)>;
 
-def : T_stb_pat <S2_storerh_pbr_pseudo, int_hexagon_brev_sth,   I32>;
-def : T_stb_pat <S2_storerb_pbr_pseudo, int_hexagon_brev_stb,   I32>;
-def : T_stb_pat <S2_storeri_pbr_pseudo, int_hexagon_brev_stw,   I32>;
-def : T_stb_pat <S2_storerf_pbr_pseudo, int_hexagon_brev_sthhi, I32>;
-def : T_stb_pat <S2_storerd_pbr_pseudo, int_hexagon_brev_std,   I64>;
+def : T_stb_pat <S2_storerh_pbr, int_hexagon_brev_sth,   I32>;
+def : T_stb_pat <S2_storerb_pbr, int_hexagon_brev_stb,   I32>;
+def : T_stb_pat <S2_storeri_pbr, int_hexagon_brev_stw,   I32>;
+def : T_stb_pat <S2_storerf_pbr, int_hexagon_brev_sthhi, I32>;
+def : T_stb_pat <S2_storerd_pbr, int_hexagon_brev_std,   I64>;
 
 class T_stc_pat <InstHexagon MI, Intrinsic IntID, PatLeaf Imm, PatLeaf Val>
   : Pat<(IntID I32:$Rs, Val:$Rt, I32:$Ru, Imm:$s),
-        (MI I32:$Rs, Val:$Rt, I32:$Ru, Imm:$s)>;
+        (MI I32:$Rs, Imm:$s, (A2_tfrrcr I32:$Ru), Val:$Rt)>;
 
-def: T_stc_pat<S2_storerb_pci_pseudo, int_hexagon_circ_stb,   s4_0ImmPred, I32>;
-def: T_stc_pat<S2_storerh_pci_pseudo, int_hexagon_circ_sth,   s4_1ImmPred, I32>;
-def: T_stc_pat<S2_storeri_pci_pseudo, int_hexagon_circ_stw,   s4_2ImmPred, I32>;
-def: T_stc_pat<S2_storerd_pci_pseudo, int_hexagon_circ_std,   s4_3ImmPred, I64>;
-def: T_stc_pat<S2_storerf_pci_pseudo, int_hexagon_circ_sthhi, s4_1ImmPred, I32>;
+def: T_stc_pat<S2_storerb_pci, int_hexagon_circ_stb,   s4_0ImmPred, I32>;
+def: T_stc_pat<S2_storerh_pci, int_hexagon_circ_sth,   s4_1ImmPred, I32>;
+def: T_stc_pat<S2_storeri_pci, int_hexagon_circ_stw,   s4_2ImmPred, I32>;
+def: T_stc_pat<S2_storerd_pci, int_hexagon_circ_std,   s4_3ImmPred, I64>;
+def: T_stc_pat<S2_storerf_pci, int_hexagon_circ_sthhi, s4_1ImmPred, I32>;
 
 include "HexagonIntrinsicsV3.td"
 include "HexagonIntrinsicsV4.td"
 include "HexagonIntrinsicsV5.td"
+include "HexagonIntrinsicsV60.td"

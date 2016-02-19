@@ -1,4 +1,4 @@
-//=== - llvm/unittest/Support/AlignOfTest.cpp - Alignment utility tests ----===//
+//=== - llvm/unittest/Support/AlignOfTest.cpp - Alignment utility tests ---===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -61,12 +61,22 @@ struct D8 : S1, D4, D5 { double x[2]; };
 struct D9 : S1, D1 { S1 s1; };
 struct V1 { virtual ~V1(); };
 struct V2 { int x; virtual ~V2(); };
-struct V3 : V1 { virtual ~V3(); };
-struct V4 : virtual V2 { int y; virtual ~V4(); };
-struct V5 : V4, V3 { double z; virtual ~V5(); };
+struct V3 : V1 {
+  ~V3() override;
+};
+struct V4 : virtual V2 { int y;
+  ~V4() override;
+};
+struct V5 : V4, V3 { double z;
+  ~V5() override;
+};
 struct V6 : S1 { virtual ~V6(); };
-struct V7 : virtual V2, virtual V6 { virtual ~V7(); };
-struct V8 : V5, virtual V6, V7 { double zz; virtual ~V8(); };
+struct V7 : virtual V2, virtual V6 {
+  ~V7() override;
+};
+struct V8 : V5, virtual V6, V7 { double zz;
+  ~V8() override;
+};
 
 double S6::f() { return 0.0; }
 float D2::g() { return 0.0f; }
@@ -78,6 +88,22 @@ V5::~V5() {}
 V6::~V6() {}
 V7::~V7() {}
 V8::~V8() {}
+
+struct Abstract1 {
+  virtual ~Abstract1() {}
+  virtual void method() = 0;
+
+  char c;
+};
+
+struct Abstract2 : Abstract1 {
+  ~Abstract2() override = default;
+  double d;
+};
+
+struct Final final : Abstract2 {
+  void method() override {}
+};
 
 // Ensure alignment is a compile-time constant.
 char LLVM_ATTRIBUTE_UNUSED test_arr1
@@ -164,6 +190,10 @@ TEST(AlignOfTest, BasicAlignmentInvariants) {
   EXPECT_LE(alignOf<V1>(),     alignOf<V6>());
   EXPECT_LE(alignOf<V1>(),     alignOf<V7>());
   EXPECT_LE(alignOf<V1>(),     alignOf<V8>());
+
+  EXPECT_LE(alignOf<char>(), alignOf<Abstract1>());
+  EXPECT_LE(alignOf<double>(), alignOf<Abstract2>());
+  EXPECT_LE(alignOf<Abstract2>(), alignOf<Final>());
 }
 
 TEST(AlignOfTest, BasicAlignedArray) {
@@ -324,4 +354,4 @@ TEST(AlignOfTest, BasicAlignedArray) {
   EXPECT_EQ(2u, sizeof(AlignedCharArray<2, 2>));
   EXPECT_EQ(16u, sizeof(AlignedCharArray<2, 16>));
 }
-}
+} // end anonymous namespace

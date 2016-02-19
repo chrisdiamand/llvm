@@ -19,7 +19,6 @@
 #define LLVM_LIB_TARGET_MIPS_MIPSINSTRINFO_H
 
 #include "Mips.h"
-#include "MipsAnalyzeImmediate.h"
 #include "MipsRegisterInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -59,8 +58,7 @@ public:
   unsigned RemoveBranch(MachineBasicBlock &MBB) const override;
 
   unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
-                        MachineBasicBlock *FBB,
-                        const SmallVectorImpl<MachineOperand> &Cond,
+                        MachineBasicBlock *FBB, ArrayRef<MachineOperand> Cond,
                         DebugLoc DL) const override;
 
   bool
@@ -140,7 +138,7 @@ private:
                      SmallVectorImpl<MachineOperand> &Cond) const;
 
   void BuildCondBr(MachineBasicBlock &MBB, MachineBasicBlock *TBB, DebugLoc DL,
-                   const SmallVectorImpl<MachineOperand>& Cond) const;
+                   ArrayRef<MachineOperand> Cond) const;
 };
 
 /// Create MipsInstrInfo objects.

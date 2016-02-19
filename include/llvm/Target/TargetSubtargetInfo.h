@@ -15,11 +15,13 @@
 #define LLVM_TARGET_TARGETSUBTARGETINFO_H
 
 #include "llvm/CodeGen/PBQPRAConstraint.h"
+#include "llvm/CodeGen/SchedulerRegistry.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/CodeGen.h"
 
 namespace llvm {
 
+class CallLowering;
 class DataLayout;
 class MachineFunction;
 class MachineInstr;
@@ -31,7 +33,7 @@ class TargetLowering;
 class TargetRegisterClass;
 class TargetRegisterInfo;
 class TargetSchedModel;
-class TargetSelectionDAGInfo;
+class SelectionDAGTargetInfo;
 struct MachineSchedPolicy;
 template <typename T> class SmallVectorImpl;
 
@@ -44,9 +46,17 @@ template <typename T> class SmallVectorImpl;
 class TargetSubtargetInfo : public MCSubtargetInfo {
   TargetSubtargetInfo(const TargetSubtargetInfo &) = delete;
   void operator=(const TargetSubtargetInfo &) = delete;
+  TargetSubtargetInfo() = delete;
 
 protected: // Can only create subclasses...
-  TargetSubtargetInfo();
+  TargetSubtargetInfo(const Triple &TT, StringRef CPU, StringRef FS,
+                      ArrayRef<SubtargetFeatureKV> PF,
+                      ArrayRef<SubtargetFeatureKV> PD,
+                      const SubtargetInfoKV *ProcSched,
+                      const MCWriteProcResEntry *WPR,
+                      const MCWriteLatencyEntry *WL,
+                      const MCReadAdvanceEntry *RA, const InstrStage *IS,
+                      const unsigned *OC, const unsigned *FP);
 
 public:
   // AntiDepBreakMode - Type of anti-dependence breaking that should
@@ -62,6 +72,7 @@ public:
   // -- Pipelines and scheduling information
   // -- Stack frame information
   // -- Selection DAG lowering information
+  // -- Call lowering information
   //
   // N.B. These objects may change during compilation. It's not safe to cache
   // them between functions.
@@ -70,7 +81,13 @@ public:
     return nullptr;
   }
   virtual const TargetLowering *getTargetLowering() const { return nullptr; }
-  virtual const TargetSelectionDAGInfo *getSelectionDAGInfo() const {
+  virtual const SelectionDAGTargetInfo *getSelectionDAGInfo() const {
+    return nullptr;
+  }
+  virtual const CallLowering *getCallLowering() const { return nullptr; }
+  /// Target can subclass this hook to select a different DAG scheduler.
+  virtual RegisterScheduler::FunctionPassCtor
+      getDAGScheduler(CodeGenOpt::Level) const {
     return nullptr;
   }
 
@@ -115,12 +132,11 @@ public:
   /// can be overridden.
   virtual bool enableJoinGlobalCopies() const;
 
-  /// \brief True if the subtarget should run PostMachineScheduler.
+  /// True if the subtarget should run a scheduler after register allocation.
   ///
-  /// This only takes effect if the target has configured the
-  /// PostMachineScheduler pass to run, or if the global cl::opt flag,
-  /// MISchedPostRA, is set.
-  virtual bool enablePostMachineScheduler() const;
+  /// By default this queries the PostRAScheduling bit in the scheduling model
+  /// which is the preferred way to influence this.
+  virtual bool enablePostRAScheduler() const;
 
   /// \brief True if the subtarget should run the atomic expansion pass.
   virtual bool enableAtomicExpand() const;

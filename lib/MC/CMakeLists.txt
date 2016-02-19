@@ -10,15 +10,17 @@ add_llvm_library(LLVMMC
   MCAssembler.cpp
   MCCodeEmitter.cpp
   MCCodeGenInfo.cpp
+  MCCodeView.cpp
   MCContext.cpp
   MCDwarf.cpp
-  MCELF.cpp
   MCELFObjectTargetWriter.cpp
   MCELFStreamer.cpp
   MCExpr.cpp
+  MCFragment.cpp
   MCInst.cpp
   MCInstPrinter.cpp
   MCInstrAnalysis.cpp
+  MCInstrDesc.cpp
   MCLabel.cpp
   MCLinkerOptimizationHint.cpp
   MCMachOStreamer.cpp
@@ -28,6 +30,7 @@ add_llvm_library(LLVMMC
   MCObjectStreamer.cpp
   MCObjectWriter.cpp
   MCRegisterInfo.cpp
+  MCSchedule.cpp
   MCSection.cpp
   MCSectionCOFF.cpp
   MCSectionELF.cpp
@@ -35,7 +38,7 @@ add_llvm_library(LLVMMC
   MCStreamer.cpp
   MCSubtargetInfo.cpp
   MCSymbol.cpp
-  MCSymbolizer.cpp
+  MCSymbolELF.cpp
   MCTargetOptions.cpp
   MCValue.cpp
   MCWin64EH.cpp

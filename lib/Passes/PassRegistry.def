@@ -27,10 +27,13 @@ MODULE_ANALYSIS("targetlibinfo", TargetLibraryAnalysis())
 #ifndef MODULE_PASS
 #define MODULE_PASS(NAME, CREATE_PASS)
 #endif
+MODULE_PASS("forceattrs", ForceFunctionAttrsPass())
+MODULE_PASS("inferattrs", InferFunctionAttrsPass())
 MODULE_PASS("invalidate<all>", InvalidateAllAnalysesPass())
 MODULE_PASS("no-op-module", NoOpModulePass())
 MODULE_PASS("print", PrintModulePass(dbgs()))
 MODULE_PASS("print-cg", LazyCallGraphPrinterPass(dbgs()))
+MODULE_PASS("strip-dead-prototypes", StripDeadPrototypesPass())
 MODULE_PASS("verify", VerifierPass())
 #undef MODULE_PASS
 
@@ -44,24 +47,35 @@ CGSCC_ANALYSIS("no-op-cgscc", NoOpCGSCCAnalysis())
 #define CGSCC_PASS(NAME, CREATE_PASS)
 #endif
 CGSCC_PASS("invalidate<all>", InvalidateAllAnalysesPass())
+CGSCC_PASS("function-attrs", PostOrderFunctionAttrsPass())
 CGSCC_PASS("no-op-cgscc", NoOpCGSCCPass())
 #undef CGSCC_PASS
 
 #ifndef FUNCTION_ANALYSIS
 #define FUNCTION_ANALYSIS(NAME, CREATE_PASS)
 #endif
+FUNCTION_ANALYSIS("aa", AAManager())
 FUNCTION_ANALYSIS("assumptions", AssumptionAnalysis())
 FUNCTION_ANALYSIS("domtree", DominatorTreeAnalysis())
 FUNCTION_ANALYSIS("loops", LoopAnalysis())
 FUNCTION_ANALYSIS("no-op-function", NoOpFunctionAnalysis())
+FUNCTION_ANALYSIS("scalar-evolution", ScalarEvolutionAnalysis())
 FUNCTION_ANALYSIS("targetlibinfo", TargetLibraryAnalysis())
 FUNCTION_ANALYSIS("targetir",
                   TM ? TM->getTargetIRAnalysis() : TargetIRAnalysis())
+
+#ifndef FUNCTION_ALIAS_ANALYSIS
+#define FUNCTION_ALIAS_ANALYSIS(NAME, CREATE_PASS)                             \
+  FUNCTION_ANALYSIS(NAME, CREATE_PASS)
+#endif
+FUNCTION_ALIAS_ANALYSIS("basic-aa", BasicAA())
+#undef FUNCTION_ALIAS_ANALYSIS
 #undef FUNCTION_ANALYSIS
 
 #ifndef FUNCTION_PASS
 #define FUNCTION_PASS(NAME, CREATE_PASS)
 #endif
+FUNCTION_PASS("adce", ADCEPass())
 FUNCTION_PASS("early-cse", EarlyCSEPass())
 FUNCTION_PASS("instcombine", InstCombinePass())
 FUNCTION_PASS("invalidate<all>", InvalidateAllAnalysesPass())
@@ -71,7 +85,9 @@ FUNCTION_PASS("print", PrintFunctionPass(dbgs()))
 FUNCTION_PASS("print<assumptions>", AssumptionPrinterPass(dbgs()))
 FUNCTION_PASS("print<domtree>", DominatorTreePrinterPass(dbgs()))
 FUNCTION_PASS("print<loops>", LoopPrinterPass(dbgs()))
+FUNCTION_PASS("print<scalar-evolution>", ScalarEvolutionPrinterPass(dbgs()))
 FUNCTION_PASS("simplify-cfg", SimplifyCFGPass())
+FUNCTION_PASS("sroa", SROA())
 FUNCTION_PASS("verify", VerifierPass())
 FUNCTION_PASS("verify<domtree>", DominatorTreeVerifierPass())
 #undef FUNCTION_PASS

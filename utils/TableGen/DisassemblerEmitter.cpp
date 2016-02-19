@@ -111,7 +111,7 @@ void EmitDisassembler(RecordKeeper &Records, raw_ostream &OS) {
   if (Target.getName() == "X86") {
     DisassemblerTables Tables;
 
-    const std::vector<const CodeGenInstruction*> &numberedInstructions =
+    ArrayRef<const CodeGenInstruction*> numberedInstructions =
       Target.getInstructionsByEnumValue();
 
     for (unsigned i = 0, e = numberedInstructions.size(); i != e; ++i)
@@ -134,7 +134,7 @@ void EmitDisassembler(RecordKeeper &Records, raw_ostream &OS) {
       PredicateNamespace = "ARM";
 
     EmitFixedLenDecoder(Records, OS, PredicateNamespace,
-                        "if (!Check(S, ", ")) return MCDisassembler::Fail;",
+                        "if (!Check(S, ", "))",
                         "S", "MCDisassembler::Fail",
                         "  MCDisassembler::DecodeStatus S = "
                           "MCDisassembler::Success;\n(void)S;");
@@ -142,8 +142,7 @@ void EmitDisassembler(RecordKeeper &Records, raw_ostream &OS) {
   }
 
   EmitFixedLenDecoder(Records, OS, Target.getName(),
-                      "if (", " == MCDisassembler::Fail)"
-                       " return MCDisassembler::Fail;",
+                      "if (", " == MCDisassembler::Fail)",
                       "MCDisassembler::Success", "MCDisassembler::Fail", "");
 }
 

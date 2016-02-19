@@ -158,7 +158,7 @@ INITIALIZE_PASS_END(AArch64A57FPLoadBalancing, DEBUG_TYPE,
                     "AArch64 A57 FP Load-Balancing", false, false)
 
 namespace {
-/// A Chain is a sequence of instructions that are linked together by 
+/// A Chain is a sequence of instructions that are linked together by
 /// an accumulation operand. For example:
 ///
 ///   fmul d0<def>, ?
@@ -285,7 +285,7 @@ public:
   std::string str() const {
     std::string S;
     raw_string_ostream OS(S);
-    
+
     OS << "{";
     StartInst->print(OS, /* SkipOpers= */true);
     OS << " -> ";
@@ -427,7 +427,7 @@ Chain *AArch64A57FPLoadBalancing::getAndEraseNext(Color PreferredColor,
       return Ch;
     }
   }
-  
+
   // Bailout case - just return the first item.
   Chain *Ch = L.front();
   L.erase(L.begin());
@@ -495,7 +495,7 @@ int AArch64A57FPLoadBalancing::scavengeRegister(Chain *G, Color C,
   RS.enterBasicBlock(&MBB);
   RS.forward(MachineBasicBlock::iterator(G->getStart()));
 
-  // Can we find an appropriate register that is available throughout the life 
+  // Can we find an appropriate register that is available throughout the life
   // of the chain?
   unsigned RegClassID = G->getStart()->getDesc().OpInfo[0].RegClass;
   BitVector AvailableRegs = RS.getRegsAvailable(TRI->getRegClass(RegClassID));
@@ -510,9 +510,17 @@ int AArch64A57FPLoadBalancing::scavengeRegister(Chain *G, Color C,
       if (J.isRegMask())
         AvailableRegs.clearBitsNotInMask(J.getRegMask());
 
-      if (J.isReg() && J.isDef() && AvailableRegs[J.getReg()]) {
-        assert(J.isDead() && "Non-dead def should have been removed by now!");
-        AvailableRegs.reset(J.getReg());
+      if (J.isReg() && J.isDef()) {
+        MCRegAliasIterator AI(J.getReg(), TRI, /*IncludeSelf=*/true);
+        if (J.isDead())
+          for (; AI.isValid(); ++AI)
+            AvailableRegs.reset(*AI);
+#ifndef NDEBUG
+        else
+          for (; AI.isValid(); ++AI)
+            assert(!AvailableRegs[*AI] &&
+                   "Non-dead def should have been removed by now!");
+#endif
       }
     }
   }
@@ -585,7 +593,6 @@ bool AArch64A57FPLoadBalancing::colorChain(Chain *G, Color C,
       if (Change) {
         Substs[MO.getReg()] = Reg;
         MO.setReg(Reg);
-        MRI->setPhysRegUsed(Reg);
 
         Changed = true;
       }

@@ -21,6 +21,9 @@
 #include <algorithm>
 #include <iterator>
 #include <set>
+#ifndef NDEBUG
+#include "llvm/Analysis/RegionPrinter.h"
+#endif
 
 using namespace llvm;
 
@@ -103,6 +106,12 @@ void RegionInfo::recalculate(Function &F, DominatorTree *DT_,
   calculate(F);
 }
 
+#ifndef NDEBUG
+void RegionInfo::view() { viewRegion(this); }
+
+void RegionInfo::viewOnly() { viewRegionOnly(this); }
+#endif
+
 //===----------------------------------------------------------------------===//
 // RegionInfoPass implementation
 //
@@ -146,7 +155,7 @@ void RegionInfoPass::print(raw_ostream &OS, const Module *) const {
 }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
-void RegionInfoPass::dump() const {
+LLVM_DUMP_METHOD void RegionInfoPass::dump() const {
   RI.dump();
 }
 #endif

@@ -15,6 +15,7 @@
 
 #include "NewPMDriver.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/CGSCCPassManager.h"
 #include "llvm/Bitcode/BitcodeWriterPass.h"
 #include "llvm/IR/Dominators.h"
@@ -36,15 +37,37 @@ static cl::opt<bool>
     DebugPM("debug-pass-manager", cl::Hidden,
             cl::desc("Print pass management debugging information"));
 
+// This flag specifies a textual description of the alias analysis pipeline to
+// use when querying for aliasing information. It only works in concert with
+// the "passes" flag above.
+static cl::opt<std::string>
+    AAPipeline("aa-pipeline",
+               cl::desc("A textual description of the alias analysis "
+                        "pipeline for handling managed aliasing queries"),
+               cl::Hidden);
+
 bool llvm::runPassPipeline(StringRef Arg0, LLVMContext &Context, Module &M,
                            TargetMachine *TM, tool_output_file *Out,
                            StringRef PassPipeline, OutputKind OK,
-                           VerifierKind VK) {
+                           VerifierKind VK,
+                           bool ShouldPreserveAssemblyUseListOrder,
+                           bool ShouldPreserveBitcodeUseListOrder) {
   PassBuilder PB(TM);
+
+  // Specially handle the alias analysis manager so that we can register
+  // a custom pipeline of AA passes with it.
+  AAManager AA;
+  if (!PB.parseAAPipeline(AA, AAPipeline)) {
+    errs() << Arg0 << ": unable to parse AA pipeline description.\n";
+    return false;
+  }
 
   FunctionAnalysisManager FAM(DebugPM);
   CGSCCAnalysisManager CGAM(DebugPM);
   ModuleAnalysisManager MAM(DebugPM);
+
+  // Register the AA manager first so that our version is the one used.
+  FAM.registerPass([&] { return std::move(AA); });
 
   // Register all the basic analyses with the managers.
   PB.registerModuleAnalyses(MAM);
@@ -52,12 +75,12 @@ bool llvm::runPassPipeline(StringRef Arg0, LLVMContext &Context, Module &M,
   PB.registerFunctionAnalyses(FAM);
 
   // Cross register the analysis managers through their proxies.
-  MAM.registerPass(FunctionAnalysisManagerModuleProxy(FAM));
-  MAM.registerPass(CGSCCAnalysisManagerModuleProxy(CGAM));
-  CGAM.registerPass(FunctionAnalysisManagerCGSCCProxy(FAM));
-  CGAM.registerPass(ModuleAnalysisManagerCGSCCProxy(MAM));
-  FAM.registerPass(CGSCCAnalysisManagerFunctionProxy(CGAM));
-  FAM.registerPass(ModuleAnalysisManagerFunctionProxy(MAM));
+  MAM.registerPass([&] { return FunctionAnalysisManagerModuleProxy(FAM); });
+  MAM.registerPass([&] { return CGSCCAnalysisManagerModuleProxy(CGAM); });
+  CGAM.registerPass([&] { return FunctionAnalysisManagerCGSCCProxy(FAM); });
+  CGAM.registerPass([&] { return ModuleAnalysisManagerCGSCCProxy(MAM); });
+  FAM.registerPass([&] { return CGSCCAnalysisManagerFunctionProxy(CGAM); });
+  FAM.registerPass([&] { return ModuleAnalysisManagerFunctionProxy(MAM); });
 
   ModulePassManager MPM(DebugPM);
   if (VK > VK_NoVerifier)
@@ -77,10 +100,12 @@ bool llvm::runPassPipeline(StringRef Arg0, LLVMContext &Context, Module &M,
   case OK_NoOutput:
     break; // No output pass needed.
   case OK_OutputAssembly:
-    MPM.addPass(PrintModulePass(Out->os()));
+    MPM.addPass(
+        PrintModulePass(Out->os(), "", ShouldPreserveAssemblyUseListOrder));
     break;
   case OK_OutputBitcode:
-    MPM.addPass(BitcodeWriterPass(Out->os()));
+    MPM.addPass(
+        BitcodeWriterPass(Out->os(), ShouldPreserveBitcodeUseListOrder));
     break;
   }
 

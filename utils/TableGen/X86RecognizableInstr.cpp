@@ -225,7 +225,6 @@ RecognizableInstr::RecognizableInstr(DisassemblerTables &tables,
   CD8_Scale        = byteFromRec(Rec, "CD8_Scale");
 
   Name      = Rec->getName();
-  AsmString = Rec->getValueAsString("AsmString");
 
   Operands = &insn.Operands.OperandList;
 
@@ -477,7 +476,7 @@ void RecognizableInstr::adjustOperandEncoding(OperandEncoding &encoding) {
 
 void RecognizableInstr::handleOperand(bool optional, unsigned &operandIndex,
                                       unsigned &physicalOperandIndex,
-                                      unsigned &numPhysicalOperands,
+                                      unsigned numPhysicalOperands,
                                       const unsigned *operandMapping,
                                       OperandEncoding (*encodingFromString)
                                         (const std::string&,
@@ -562,6 +561,7 @@ void RecognizableInstr::emitInstructionSpecifier() {
   // physicalOperandIndex should always be < numPhysicalOperands
   unsigned physicalOperandIndex = 0;
 
+#ifndef NDEBUG
   // Given the set of prefix bits, how many additional operands does the
   // instruction have?
   unsigned additionalOperands = 0;
@@ -569,6 +569,7 @@ void RecognizableInstr::emitInstructionSpecifier() {
     ++additionalOperands;
   if (HasEVEX_K)
     ++additionalOperands;
+#endif
 
   switch (Form) {
   default: llvm_unreachable("Unhandled form");
@@ -584,11 +585,9 @@ void RecognizableInstr::emitInstructionSpecifier() {
     return;
   case X86Local::RawFrm:
     // Operand 1 (optional) is an address or immediate.
-    // Operand 2 (optional) is an immediate.
-    assert(numPhysicalOperands <= 2 &&
+    assert(numPhysicalOperands <= 1 &&
            "Unexpected number of operands for RawFrm");
     HANDLE_OPTIONAL(relocation)
-    HANDLE_OPTIONAL(immediate)
     break;
   case X86Local::RawFrmMemOffs:
     // Operand 1 is an address.
@@ -796,12 +795,12 @@ void RecognizableInstr::emitInstructionSpecifier() {
   case X86Local::MRM_E3: case X86Local::MRM_E4: case X86Local::MRM_E5:
   case X86Local::MRM_E8: case X86Local::MRM_E9: case X86Local::MRM_EA:
   case X86Local::MRM_EB: case X86Local::MRM_EC: case X86Local::MRM_ED:
-  case X86Local::MRM_EE: case X86Local::MRM_F0: case X86Local::MRM_F1:
-  case X86Local::MRM_F2: case X86Local::MRM_F3: case X86Local::MRM_F4:
-  case X86Local::MRM_F5: case X86Local::MRM_F6: case X86Local::MRM_F7:
-  case X86Local::MRM_F9: case X86Local::MRM_FA: case X86Local::MRM_FB:
-  case X86Local::MRM_FC: case X86Local::MRM_FD: case X86Local::MRM_FE:
-  case X86Local::MRM_FF:
+  case X86Local::MRM_EE: case X86Local::MRM_EF: case X86Local::MRM_F0:
+  case X86Local::MRM_F1: case X86Local::MRM_F2: case X86Local::MRM_F3:
+  case X86Local::MRM_F4: case X86Local::MRM_F5: case X86Local::MRM_F6:
+  case X86Local::MRM_F7: case X86Local::MRM_F9: case X86Local::MRM_FA:
+  case X86Local::MRM_FB: case X86Local::MRM_FC: case X86Local::MRM_FD:
+  case X86Local::MRM_FE: case X86Local::MRM_FF:
     // Ignored.
     break;
   }
@@ -951,6 +950,7 @@ OperandType RecognizableInstr::typeFromString(const std::string &s,
   TYPE("f128mem",             TYPE_M128)
   TYPE("f256mem",             TYPE_M256)
   TYPE("f512mem",             TYPE_M512)
+  TYPE("FR128",               TYPE_XMM128)
   TYPE("FR64",                TYPE_XMM64)
   TYPE("FR64X",               TYPE_XMM64)
   TYPE("f64mem",              TYPE_M64FP)
@@ -1027,12 +1027,16 @@ OperandType RecognizableInstr::typeFromString(const std::string &s,
   TYPE("GR32_NOAX",           TYPE_Rv)
   TYPE("GR64_NOAX",           TYPE_R64)
   TYPE("vx32mem",             TYPE_M32)
+  TYPE("vx32xmem",            TYPE_M32)
   TYPE("vy32mem",             TYPE_M32)
+  TYPE("vy32xmem",            TYPE_M32)
   TYPE("vz32mem",             TYPE_M32)
   TYPE("vx64mem",             TYPE_M64)
+  TYPE("vx64xmem",            TYPE_M64)
   TYPE("vy64mem",             TYPE_M64)
   TYPE("vy64xmem",            TYPE_M64)
   TYPE("vz64mem",             TYPE_M64)
+  TYPE("BNDR",                TYPE_BNDR)
   errs() << "Unhandled type string " << s << "\n";
   llvm_unreachable("Unhandled type string");
 }
@@ -1065,6 +1069,7 @@ RecognizableInstr::immediateEncodingFromString(const std::string &s,
   // register IDs in 8-bit immediates nowadays.
   ENCODING("FR32",            ENCODING_IB)
   ENCODING("FR64",            ENCODING_IB)
+  ENCODING("FR128",           ENCODING_IB)
   ENCODING("VR128",           ENCODING_IB)
   ENCODING("VR256",           ENCODING_IB)
   ENCODING("FR32X",           ENCODING_IB)
@@ -1087,6 +1092,7 @@ RecognizableInstr::rmRegisterEncodingFromString(const std::string &s,
   ENCODING("GR8",             ENCODING_RM)
   ENCODING("VR128",           ENCODING_RM)
   ENCODING("VR128X",          ENCODING_RM)
+  ENCODING("FR128",           ENCODING_RM)
   ENCODING("FR64",            ENCODING_RM)
   ENCODING("FR32",            ENCODING_RM)
   ENCODING("FR64X",           ENCODING_RM)
@@ -1096,10 +1102,13 @@ RecognizableInstr::rmRegisterEncodingFromString(const std::string &s,
   ENCODING("VR256X",          ENCODING_RM)
   ENCODING("VR512",           ENCODING_RM)
   ENCODING("VK1",             ENCODING_RM)
+  ENCODING("VK2",             ENCODING_RM)
+  ENCODING("VK4",             ENCODING_RM)
   ENCODING("VK8",             ENCODING_RM)
   ENCODING("VK16",            ENCODING_RM)
   ENCODING("VK32",            ENCODING_RM)
   ENCODING("VK64",            ENCODING_RM)
+  ENCODING("BNDR",            ENCODING_RM)
   errs() << "Unhandled R/M register encoding " << s << "\n";
   llvm_unreachable("Unhandled R/M register encoding");
 }
@@ -1113,6 +1122,7 @@ RecognizableInstr::roRegisterEncodingFromString(const std::string &s,
   ENCODING("GR64",            ENCODING_REG)
   ENCODING("GR8",             ENCODING_REG)
   ENCODING("VR128",           ENCODING_REG)
+  ENCODING("FR128",           ENCODING_REG)
   ENCODING("FR64",            ENCODING_REG)
   ENCODING("FR32",            ENCODING_REG)
   ENCODING("VR64",            ENCODING_REG)
@@ -1133,8 +1143,13 @@ RecognizableInstr::roRegisterEncodingFromString(const std::string &s,
   ENCODING("VK32",            ENCODING_REG)
   ENCODING("VK64",            ENCODING_REG)
   ENCODING("VK1WM",           ENCODING_REG)
+  ENCODING("VK2WM",           ENCODING_REG)
+  ENCODING("VK4WM",           ENCODING_REG)
   ENCODING("VK8WM",           ENCODING_REG)
   ENCODING("VK16WM",          ENCODING_REG)
+  ENCODING("VK32WM",          ENCODING_REG)
+  ENCODING("VK64WM",          ENCODING_REG)
+  ENCODING("BNDR",            ENCODING_REG)
   errs() << "Unhandled reg/opcode register encoding " << s << "\n";
   llvm_unreachable("Unhandled reg/opcode register encoding");
 }
@@ -1145,6 +1160,7 @@ RecognizableInstr::vvvvRegisterEncodingFromString(const std::string &s,
   ENCODING("GR32",            ENCODING_VVVV)
   ENCODING("GR64",            ENCODING_VVVV)
   ENCODING("FR32",            ENCODING_VVVV)
+  ENCODING("FR128",           ENCODING_VVVV)
   ENCODING("FR64",            ENCODING_VVVV)
   ENCODING("VR128",           ENCODING_VVVV)
   ENCODING("VR256",           ENCODING_VVVV)
@@ -1204,9 +1220,12 @@ RecognizableInstr::memoryEncodingFromString(const std::string &s,
   ENCODING("opaque80mem",     ENCODING_RM)
   ENCODING("opaque512mem",    ENCODING_RM)
   ENCODING("vx32mem",         ENCODING_RM)
+  ENCODING("vx32xmem",        ENCODING_RM)
   ENCODING("vy32mem",         ENCODING_RM)
+  ENCODING("vy32xmem",        ENCODING_RM)
   ENCODING("vz32mem",         ENCODING_RM)
   ENCODING("vx64mem",         ENCODING_RM)
+  ENCODING("vx64xmem",        ENCODING_RM)
   ENCODING("vy64mem",         ENCODING_RM)
   ENCODING("vy64xmem",        ENCODING_RM)
   ENCODING("vz64mem",         ENCODING_RM)

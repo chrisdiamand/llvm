@@ -6,6 +6,7 @@
 ; RUN: opt < %s -sancov -sanitizer-coverage-level=2 -sanitizer-coverage-block-threshold=1  -S | FileCheck %s --check-prefix=CHECK_WITH_CHECK
 ; RUN: opt < %s -sancov -sanitizer-coverage-level=3 -sanitizer-coverage-block-threshold=10 -S | FileCheck %s --check-prefix=CHECK3
 ; RUN: opt < %s -sancov -sanitizer-coverage-level=4 -S | FileCheck %s --check-prefix=CHECK4
+; RUN: opt < %s -sancov -sanitizer-coverage-level=4 -sanitizer-coverage-trace-pc  -S | FileCheck %s --check-prefix=CHECK_TRACE_PC_INDIR
 ; RUN: opt < %s -sancov -sanitizer-coverage-level=3 -sanitizer-coverage-8bit-counters=1  -S | FileCheck %s --check-prefix=CHECK-8BIT
 
 ; RUN: opt < %s -sancov -sanitizer-coverage-level=2 -sanitizer-coverage-block-threshold=10 \
@@ -29,8 +30,8 @@ entry:
 }
 
 ; CHECK0-NOT: @llvm.global_ctors = {{.*}}{ i32 2, void ()* @sancov.module_ctor }
-; CHECK1: @llvm.global_ctors = {{.*}}{ i32 2, void ()* @sancov.module_ctor }
-; CHECK2: @llvm.global_ctors = {{.*}}{ i32 2, void ()* @sancov.module_ctor }
+; CHECK1: @llvm.global_ctors = {{.*}}{ i32 2, void ()* @sancov.module_ctor, i8* null }
+; CHECK2: @llvm.global_ctors = {{.*}}{ i32 2, void ()* @sancov.module_ctor, i8* null }
 
 ; CHECK0-NOT: call void @__sanitizer_cov(
 ; CHECK0-NOT: call void @__sanitizer_cov_module_init(
@@ -119,3 +120,17 @@ entry:
 ; CHECK4: call void @__sanitizer_cov_indir_call16({{.*}},[[CACHE:.*]])
 ; CHECK4-NOT: call void @__sanitizer_cov_indir_call16({{.*}},[[CACHE]])
 ; CHECK4: ret void
+
+; CHECK_TRACE_PC_INDIR-LABEL: define void @CallViaVptr
+; CHECK_TRACE_PC_INDIR: call void @__sanitizer_cov_trace_pc_indir
+; CHECK_TRACE_PC_INDIR: call void @__sanitizer_cov_trace_pc_indir
+; CHECK_TRACE_PC_INDIR: ret void
+
+define void @call_unreachable() uwtable sanitize_address {
+entry:
+  unreachable
+}
+
+; CHECK4-LABEL: define void @call_unreachable
+; CHECK4-NOT: __sanitizer_cov
+; CHECK4: unreachable

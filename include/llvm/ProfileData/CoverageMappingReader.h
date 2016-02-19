@@ -80,12 +80,6 @@ class RawCoverageReader {
 protected:
   StringRef Data;
 
-  /// \brief Return the error code.
-  std::error_code error(std::error_code EC) { return EC; }
-
-  /// \brief Clear the current error code and return a successful one.
-  std::error_code success() { return error(instrprof_error::success); }
-
   RawCoverageReader(StringRef Data) : Data(Data) {}
 
   std::error_code readULEB128(uint64_t &Result);
@@ -146,14 +140,14 @@ private:
 class BinaryCoverageReader : public CoverageMappingReader {
 public:
   struct ProfileMappingRecord {
-    CoverageMappingVersion Version;
+    CovMapVersion Version;
     StringRef FunctionName;
     uint64_t FunctionHash;
     StringRef CoverageMapping;
     size_t FilenamesBegin;
     size_t FilenamesSize;
 
-    ProfileMappingRecord(CoverageMappingVersion Version, StringRef FunctionName,
+    ProfileMappingRecord(CovMapVersion Version, StringRef FunctionName,
                          uint64_t FunctionHash, StringRef CoverageMapping,
                          size_t FilenamesBegin, size_t FilenamesSize)
         : Version(Version), FunctionName(FunctionName),
@@ -164,6 +158,7 @@ public:
 private:
   std::vector<StringRef> Filenames;
   std::vector<ProfileMappingRecord> MappingRecords;
+  InstrProfSymtab ProfileNames;
   size_t CurrentRecord;
   std::vector<StringRef> FunctionsFilenames;
   std::vector<CounterExpression> Expressions;
@@ -177,7 +172,7 @@ private:
 public:
   static ErrorOr<std::unique_ptr<BinaryCoverageReader>>
   create(std::unique_ptr<MemoryBuffer> &ObjectBuffer,
-         Triple::ArchType Arch = Triple::ArchType::UnknownArch);
+         StringRef Arch);
 
   std::error_code readNextRecord(CoverageMappingRecord &Record) override;
 };

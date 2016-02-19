@@ -7,15 +7,15 @@ define i32 @test_ifchains(i32 %i, i32* %a, i32 %b) {
 ; that is not expected to run.
 ; CHECK-LABEL: test_ifchains:
 ; CHECK: %entry
-; CHECK-NOT: .align
+; CHECK-NOT: .p2align
 ; CHECK: %else1
-; CHECK-NOT: .align
+; CHECK-NOT: .p2align
 ; CHECK: %else2
-; CHECK-NOT: .align
+; CHECK-NOT: .p2align
 ; CHECK: %else3
-; CHECK-NOT: .align
+; CHECK-NOT: .p2align
 ; CHECK: %else4
-; CHECK-NOT: .align
+; CHECK-NOT: .p2align
 ; CHECK: %exit
 ; CHECK: %then1
 ; CHECK: %then2
@@ -81,11 +81,11 @@ define i32 @test_loop_cold_blocks(i32 %i, i32* %a) {
 ; Check that we sink cold loop blocks after the hot loop body.
 ; CHECK-LABEL: test_loop_cold_blocks:
 ; CHECK: %entry
-; CHECK-NOT: .align
+; CHECK-NOT: .p2align
 ; CHECK: %unlikely1
-; CHECK-NOT: .align
+; CHECK-NOT: .p2align
 ; CHECK: %unlikely2
-; CHECK: .align
+; CHECK: .p2align
 ; CHECK: %body1
 ; CHECK: %body2
 ; CHECK: %body3
@@ -242,7 +242,7 @@ define i32 @test_loop_align(i32 %i, i32* %a) {
 ; pass.
 ; CHECK-LABEL: test_loop_align:
 ; CHECK: %entry
-; CHECK: .align [[ALIGN:[0-9]+]],
+; CHECK: .p2align [[ALIGN:[0-9]+]],
 ; CHECK-NEXT: %body
 ; CHECK: %exit
 
@@ -267,11 +267,11 @@ define i32 @test_nested_loop_align(i32 %i, i32* %a, i32* %b) {
 ; Check that we provide nested loop body alignment.
 ; CHECK-LABEL: test_nested_loop_align:
 ; CHECK: %entry
-; CHECK: .align [[ALIGN]],
+; CHECK: .p2align [[ALIGN]],
 ; CHECK-NEXT: %loop.body.1
-; CHECK: .align [[ALIGN]],
+; CHECK: .p2align [[ALIGN]],
 ; CHECK-NEXT: %inner.loop.body
-; CHECK-NOT: .align
+; CHECK-NOT: .p2align
 ; CHECK: %exit
 
 entry:
@@ -546,7 +546,7 @@ exit:
 
 declare i32 @__gxx_personality_v0(...)
 
-define void @test_eh_lpad_successor() {
+define void @test_eh_lpad_successor() personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
 ; Some times the landing pad ends up as the first successor of an invoke block.
 ; When this happens, a strange result used to fall out of updateTerminators: we
 ; didn't correctly locate the fallthrough successor, assuming blindly that the
@@ -564,7 +564,7 @@ preheader:
   br label %loop
 
 lpad:
-  %lpad.val = landingpad { i8*, i32 } personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
+  %lpad.val = landingpad { i8*, i32 }
           cleanup
   resume { i8*, i32 } %lpad.val
 
@@ -574,7 +574,7 @@ loop:
 
 declare void @fake_throw() noreturn
 
-define void @test_eh_throw() {
+define void @test_eh_throw() personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
 ; For blocks containing a 'throw' (or similar functionality), we have
 ; a no-return invoke. In this case, only EH successors will exist, and
 ; fallthrough simply won't occur. Make sure we don't crash trying to update
@@ -591,7 +591,7 @@ continue:
   unreachable
 
 cleanup:
-  %0 = landingpad { i8*, i32 } personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*)
+  %0 = landingpad { i8*, i32 }
           cleanup
   unreachable
 }
@@ -943,18 +943,18 @@ define void @benchmark_heapsort(i32 %n, double* nocapture %ra) {
 ; CHECK: @benchmark_heapsort
 ; CHECK: %entry
 ; First rotated loop top.
-; CHECK: .align
+; CHECK: .p2align
 ; CHECK: %while.end
 ; CHECK: %for.cond
 ; CHECK: %if.then
 ; CHECK: %if.else
 ; CHECK: %if.end10
 ; Second rotated loop top
-; CHECK: .align
+; CHECK: .p2align
 ; CHECK: %if.then24
 ; CHECK: %while.cond.outer
 ; Third rotated loop top
-; CHECK: .align
+; CHECK: .p2align
 ; CHECK: %while.cond
 ; CHECK: %while.body
 ; CHECK: %land.lhs.true

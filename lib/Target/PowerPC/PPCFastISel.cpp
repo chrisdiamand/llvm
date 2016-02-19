@@ -144,8 +144,12 @@ class PPCFastISel final : public FastISel {
   private:
     bool isTypeLegal(Type *Ty, MVT &VT);
     bool isLoadTypeLegal(Type *Ty, MVT &VT);
+    bool isValueAvailable(const Value *V) const;
     bool isVSFRCRegister(unsigned Register) const {
       return MRI.getRegClass(Register)->getID() == PPC::VSFRCRegClassID;
+    }
+    bool isVSSRCRegister(unsigned Register) const {
+      return MRI.getRegClass(Register)->getID() == PPC::VSSRCRegClassID;
     }
     bool PPCEmitCmp(const Value *Src1Value, const Value *Src2Value,
                     bool isZExt, unsigned DestReg);
@@ -160,7 +164,8 @@ class PPCFastISel final : public FastISel {
                            unsigned DestReg, bool IsZExt);
     unsigned PPCMaterializeFP(const ConstantFP *CFP, MVT VT);
     unsigned PPCMaterializeGV(const GlobalValue *GV, MVT VT);
-    unsigned PPCMaterializeInt(const Constant *C, MVT VT, bool UseSExt = true);
+    unsigned PPCMaterializeInt(const ConstantInt *CI, MVT VT,
+                               bool UseSExt = true);
     unsigned PPCMaterialize32BitInt(int64_t Imm,
                                     const TargetRegisterClass *RC);
     unsigned PPCMaterialize64BitInt(int64_t Imm,
@@ -258,7 +263,7 @@ static Optional<PPC::Predicate> getComparePred(CmpInst::Predicate Pred) {
 // fast-isel, and return its equivalent machine type in VT.
 // FIXME: Copied directly from ARM -- factor into base class?
 bool PPCFastISel::isTypeLegal(Type *Ty, MVT &VT) {
-  EVT Evt = TLI.getValueType(Ty, true);
+  EVT Evt = TLI.getValueType(DL, Ty, true);
 
   // Only handle simple types.
   if (Evt == MVT::Other || !Evt.isSimple()) return false;
@@ -281,6 +286,14 @@ bool PPCFastISel::isLoadTypeLegal(Type *Ty, MVT &VT) {
   }
 
   return false;
+}
+
+bool PPCFastISel::isValueAvailable(const Value *V) const {
+  if (!isa<Instruction>(V))
+    return true;
+
+  const auto *I = cast<Instruction>(V);
+  return FuncInfo.MBBMap[I->getParent()] == FuncInfo.MBB;
 }
 
 // Given a value Obj, create an Address object Addr that represents its
@@ -309,12 +322,13 @@ bool PPCFastISel::PPCComputeAddress(const Value *Obj, Address &Addr) {
       return PPCComputeAddress(U->getOperand(0), Addr);
     case Instruction::IntToPtr:
       // Look past no-op inttoptrs.
-      if (TLI.getValueType(U->getOperand(0)->getType()) == TLI.getPointerTy())
+      if (TLI.getValueType(DL, U->getOperand(0)->getType()) ==
+          TLI.getPointerTy(DL))
         return PPCComputeAddress(U->getOperand(0), Addr);
       break;
     case Instruction::PtrToInt:
       // Look past no-op ptrtoints.
-      if (TLI.getValueType(U->getType()) == TLI.getPointerTy())
+      if (TLI.getValueType(DL, U->getType()) == TLI.getPointerTy(DL))
         return PPCComputeAddress(U->getOperand(0), Addr);
       break;
     case Instruction::GetElementPtr: {
@@ -491,8 +505,11 @@ bool PPCFastISel::PPCEmitLoad(MVT VT, unsigned &ResultReg, Address &Addr,
 
   // If this is a potential VSX load with an offset of 0, a VSX indexed load can
   // be used.
+  bool IsVSSRC = (ResultReg != 0) && isVSSRCRegister(ResultReg);
   bool IsVSFRC = (ResultReg != 0) && isVSFRCRegister(ResultReg);
-  if (IsVSFRC && (Opc == PPC::LFD) && 
+  bool Is32VSXLoad = IsVSSRC && Opc == PPC::LFS;
+  bool Is64VSXLoad = IsVSSRC && Opc == PPC::LFD;
+  if ((Is32VSXLoad || Is64VSXLoad) &&
       (Addr.BaseType != Address::FrameIndexBase) && UseOffset &&
       (Addr.Offset == 0)) {
     UseOffset = false;
@@ -506,11 +523,11 @@ bool PPCFastISel::PPCEmitLoad(MVT VT, unsigned &ResultReg, Address &Addr,
   // into a RegBase.
   if (Addr.BaseType == Address::FrameIndexBase) {
     // VSX only provides an indexed load.
-    if (IsVSFRC && Opc == PPC::LFD) return false;
+    if (Is32VSXLoad || Is64VSXLoad) return false;
 
-    MachineMemOperand *MMO =
-      FuncInfo.MF->getMachineMemOperand(
-        MachinePointerInfo::getFixedStack(Addr.Base.FI, Addr.Offset),
+    MachineMemOperand *MMO = FuncInfo.MF->getMachineMemOperand(
+        MachinePointerInfo::getFixedStack(*FuncInfo.MF, Addr.Base.FI,
+                                          Addr.Offset),
         MachineMemOperand::MOLoad, MFI.getObjectSize(Addr.Base.FI),
         MFI.getObjectAlignment(Addr.Base.FI));
 
@@ -520,7 +537,7 @@ bool PPCFastISel::PPCEmitLoad(MVT VT, unsigned &ResultReg, Address &Addr,
   // Base reg with offset in range.
   } else if (UseOffset) {
     // VSX only provides an indexed load.
-    if (IsVSFRC && Opc == PPC::LFD) return false;
+    if (Is32VSXLoad || Is64VSXLoad) return false;
 
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(Opc), ResultReg)
       .addImm(Addr.Offset).addReg(Addr.Base.Reg);
@@ -543,7 +560,7 @@ bool PPCFastISel::PPCEmitLoad(MVT VT, unsigned &ResultReg, Address &Addr,
       case PPC::LWA:    Opc = PPC::LWAX;    break;
       case PPC::LWA_32: Opc = PPC::LWAX_32; break;
       case PPC::LD:     Opc = PPC::LDX;     break;
-      case PPC::LFS:    Opc = PPC::LFSX;    break;
+      case PPC::LFS:    Opc = IsVSSRC ? PPC::LXSSPX : PPC::LFSX; break;
       case PPC::LFD:    Opc = IsVSFRC ? PPC::LXSDX : PPC::LFDX; break;
     }
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(Opc), ResultReg)
@@ -624,9 +641,12 @@ bool PPCFastISel::PPCEmitStore(MVT VT, unsigned SrcReg, Address &Addr) {
 
   // If this is a potential VSX store with an offset of 0, a VSX indexed store
   // can be used.
+  bool IsVSSRC = isVSSRCRegister(SrcReg);
   bool IsVSFRC = isVSFRCRegister(SrcReg);
-  if (IsVSFRC && (Opc == PPC::STFD) && 
-      (Addr.BaseType != Address::FrameIndexBase) && UseOffset && 
+  bool Is32VSXStore = IsVSSRC && Opc == PPC::STFS;
+  bool Is64VSXStore = IsVSFRC && Opc == PPC::STFD;
+  if ((Is32VSXStore || Is64VSXStore) &&
+      (Addr.BaseType != Address::FrameIndexBase) && UseOffset &&
       (Addr.Offset == 0)) {
     UseOffset = false;
   }
@@ -636,11 +656,11 @@ bool PPCFastISel::PPCEmitStore(MVT VT, unsigned SrcReg, Address &Addr) {
   // into a RegBase.
   if (Addr.BaseType == Address::FrameIndexBase) {
     // VSX only provides an indexed store.
-    if (IsVSFRC && Opc == PPC::STFD) return false;
+    if (Is32VSXStore || Is64VSXStore) return false;
 
-    MachineMemOperand *MMO =
-      FuncInfo.MF->getMachineMemOperand(
-        MachinePointerInfo::getFixedStack(Addr.Base.FI, Addr.Offset),
+    MachineMemOperand *MMO = FuncInfo.MF->getMachineMemOperand(
+        MachinePointerInfo::getFixedStack(*FuncInfo.MF, Addr.Base.FI,
+                                          Addr.Offset),
         MachineMemOperand::MOStore, MFI.getObjectSize(Addr.Base.FI),
         MFI.getObjectAlignment(Addr.Base.FI));
 
@@ -653,7 +673,7 @@ bool PPCFastISel::PPCEmitStore(MVT VT, unsigned SrcReg, Address &Addr) {
   // Base reg with offset in range.
   } else if (UseOffset) {
     // VSX only provides an indexed store.
-    if (IsVSFRC && Opc == PPC::STFD) return false;
+    if (Is32VSXStore || Is64VSXStore) return false;
     
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(Opc))
       .addReg(SrcReg).addImm(Addr.Offset).addReg(Addr.Base.Reg);
@@ -672,7 +692,7 @@ bool PPCFastISel::PPCEmitStore(MVT VT, unsigned SrcReg, Address &Addr) {
       case PPC::STH8: Opc = PPC::STHX8; break;
       case PPC::STW8: Opc = PPC::STWX8; break;
       case PPC::STD:  Opc = PPC::STDX;  break;
-      case PPC::STFS: Opc = PPC::STFSX; break;
+      case PPC::STFS: Opc = IsVSSRC ? PPC::STXSSPX : PPC::STFSX; break;
       case PPC::STFD: Opc = IsVSFRC ? PPC::STXSDX : PPC::STFDX; break;
     }
 
@@ -731,30 +751,30 @@ bool PPCFastISel::SelectBranch(const Instruction *I) {
 
   // For now, just try the simplest case where it's fed by a compare.
   if (const CmpInst *CI = dyn_cast<CmpInst>(BI->getCondition())) {
-    Optional<PPC::Predicate> OptPPCPred = getComparePred(CI->getPredicate());
-    if (!OptPPCPred)
-      return false;
+    if (isValueAvailable(CI)) {
+      Optional<PPC::Predicate> OptPPCPred = getComparePred(CI->getPredicate());
+      if (!OptPPCPred)
+        return false;
 
-    PPC::Predicate PPCPred = OptPPCPred.getValue();
+      PPC::Predicate PPCPred = OptPPCPred.getValue();
 
-    // Take advantage of fall-through opportunities.
-    if (FuncInfo.MBB->isLayoutSuccessor(TBB)) {
-      std::swap(TBB, FBB);
-      PPCPred = PPC::InvertPredicate(PPCPred);
+      // Take advantage of fall-through opportunities.
+      if (FuncInfo.MBB->isLayoutSuccessor(TBB)) {
+        std::swap(TBB, FBB);
+        PPCPred = PPC::InvertPredicate(PPCPred);
+      }
+
+      unsigned CondReg = createResultReg(&PPC::CRRCRegClass);
+
+      if (!PPCEmitCmp(CI->getOperand(0), CI->getOperand(1), CI->isUnsigned(),
+                      CondReg))
+        return false;
+
+      BuildMI(*BrBB, FuncInfo.InsertPt, DbgLoc, TII.get(PPC::BCC))
+        .addImm(PPCPred).addReg(CondReg).addMBB(TBB);
+      finishCondBranch(BI->getParent(), TBB, FBB);
+      return true;
     }
-
-    unsigned CondReg = createResultReg(&PPC::CRRCRegClass);
-
-    if (!PPCEmitCmp(CI->getOperand(0), CI->getOperand(1), CI->isUnsigned(),
-                    CondReg))
-      return false;
-
-    BuildMI(*BrBB, FuncInfo.InsertPt, DbgLoc, TII.get(PPC::BCC))
-      .addImm(PPCPred).addReg(CondReg).addMBB(TBB);
-    fastEmitBranch(FBB, DbgLoc);
-    FuncInfo.MBB->addSuccessor(TBB);
-    return true;
-
   } else if (const ConstantInt *CI =
              dyn_cast<ConstantInt>(BI->getCondition())) {
     uint64_t Imm = CI->getZExtValue();
@@ -777,7 +797,7 @@ bool PPCFastISel::SelectBranch(const Instruction *I) {
 bool PPCFastISel::PPCEmitCmp(const Value *SrcValue1, const Value *SrcValue2,
                              bool IsZExt, unsigned DestReg) {
   Type *Ty = SrcValue1->getType();
-  EVT SrcEVT = TLI.getValueType(Ty, true);
+  EVT SrcEVT = TLI.getValueType(DL, Ty, true);
   if (!SrcEVT.isSimple())
     return false;
   MVT SrcVT = SrcEVT.getSimpleVT();
@@ -871,8 +891,8 @@ bool PPCFastISel::PPCEmitCmp(const Value *SrcValue1, const Value *SrcValue2,
 // Attempt to fast-select a floating-point extend instruction.
 bool PPCFastISel::SelectFPExt(const Instruction *I) {
   Value *Src  = I->getOperand(0);
-  EVT SrcVT  = TLI.getValueType(Src->getType(), true);
-  EVT DestVT = TLI.getValueType(I->getType(), true);
+  EVT SrcVT = TLI.getValueType(DL, Src->getType(), true);
+  EVT DestVT = TLI.getValueType(DL, I->getType(), true);
 
   if (SrcVT != MVT::f32 || DestVT != MVT::f64)
     return false;
@@ -889,8 +909,8 @@ bool PPCFastISel::SelectFPExt(const Instruction *I) {
 // Attempt to fast-select a floating-point truncate instruction.
 bool PPCFastISel::SelectFPTrunc(const Instruction *I) {
   Value *Src  = I->getOperand(0);
-  EVT SrcVT  = TLI.getValueType(Src->getType(), true);
-  EVT DestVT = TLI.getValueType(I->getType(), true);
+  EVT SrcVT = TLI.getValueType(DL, Src->getType(), true);
+  EVT DestVT = TLI.getValueType(DL, I->getType(), true);
 
   if (SrcVT != MVT::f64 || DestVT != MVT::f32)
     return false;
@@ -958,6 +978,8 @@ unsigned PPCFastISel::PPCMoveToFPReg(MVT SrcVT, unsigned SrcReg,
 }
 
 // Attempt to fast-select an integer-to-floating-point conversion.
+// FIXME: Once fast-isel has better support for VSX, conversions using
+//        direct moves should be implemented.
 bool PPCFastISel::SelectIToFP(const Instruction *I, bool IsSigned) {
   MVT DstVT;
   Type *DstTy = I->getType();
@@ -968,7 +990,7 @@ bool PPCFastISel::SelectIToFP(const Instruction *I, bool IsSigned) {
     return false;
 
   Value *Src = I->getOperand(0);
-  EVT SrcEVT = TLI.getValueType(Src->getType(), true);
+  EVT SrcEVT = TLI.getValueType(DL, Src->getType(), true);
   if (!SrcEVT.isSimple())
     return false;
 
@@ -1065,6 +1087,8 @@ unsigned PPCFastISel::PPCMoveToIntReg(const Instruction *I, MVT VT,
 }
 
 // Attempt to fast-select a floating-point-to-integer conversion.
+// FIXME: Once fast-isel has better support for VSX, conversions using
+//        direct moves should be implemented.
 bool PPCFastISel::SelectFPToI(const Instruction *I, bool IsSigned) {
   MVT DstVT, SrcVT;
   Type *DstTy = I->getType();
@@ -1131,7 +1155,7 @@ bool PPCFastISel::SelectFPToI(const Instruction *I, bool IsSigned) {
 // Attempt to fast-select a binary integer operation that isn't already
 // handled automatically.
 bool PPCFastISel::SelectBinaryIntOp(const Instruction *I, unsigned ISDOpcode) {
-  EVT DestVT  = TLI.getValueType(I->getType(), true);
+  EVT DestVT = TLI.getValueType(DL, I->getType(), true);
 
   // We can get here in the case when we have a binary operation on a non-legal
   // type and the target independent selector doesn't know how to handle it.
@@ -1422,9 +1446,9 @@ bool PPCFastISel::fastLowerCall(CallLoweringInfo &CLI) {
   bool IsTailCall     = CLI.IsTailCall;
   bool IsVarArg       = CLI.IsVarArg;
   const Value *Callee = CLI.Callee;
-  const char *SymName = CLI.SymName;
+  const MCSymbol *Symbol = CLI.Symbol;
 
-  if (!Callee && !SymName)
+  if (!Callee && !Symbol)
     return false;
 
   // Allow SelectionDAG isel to handle tail calls.
@@ -1568,7 +1592,7 @@ bool PPCFastISel::SelectRet(const Instruction *I) {
 
   if (Ret->getNumOperands() > 0) {
     SmallVector<ISD::OutputArg, 4> Outs;
-    GetReturnInfo(F.getReturnType(), F.getAttributes(), Outs, TLI);
+    GetReturnInfo(F.getReturnType(), F.getAttributes(), Outs, TLI, DL);
 
     // Analyze operands of the call, assigning locations to each operand.
     SmallVector<CCValAssign, 16> ValLocs;
@@ -1580,21 +1604,18 @@ bool PPCFastISel::SelectRet(const Instruction *I) {
     if (ValLocs.size() > 1)
       return false;
 
-    // Special case for returning a constant integer of any size.
-    // Materialize the constant as an i64 and copy it to the return
-    // register. We still need to worry about properly extending the sign. E.g:
-    // If the constant has only one bit, it means it is a boolean. Therefore
-    // we can't use PPCMaterializeInt because it extends the sign which will
-    // cause negations of the returned value to be incorrect as they are
-    // implemented as the flip of the least significant bit.
-    if (isa<ConstantInt>(*RV)) {
-      const Constant *C = cast<Constant>(RV);
-
+    // Special case for returning a constant integer of any size - materialize
+    // the constant as an i64 and copy it to the return register.
+    if (const ConstantInt *CI = dyn_cast<ConstantInt>(RV)) {
       CCValAssign &VA = ValLocs[0];
 
       unsigned RetReg = VA.getLocReg();
-      unsigned SrcReg = PPCMaterializeInt(C, MVT::i64,
-                                          VA.getLocInfo() == CCValAssign::SExt);
+      // We still need to worry about properly extending the sign. For example,
+      // we could have only a single bit or a constant that needs zero
+      // extension rather than sign extension. Make sure we pass the return
+      // value extension property to integer materialization.
+      unsigned SrcReg =
+          PPCMaterializeInt(CI, MVT::i64, VA.getLocInfo() != CCValAssign::ZExt);
 
       BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
             TII.get(TargetOpcode::COPY), RetReg).addReg(SrcReg);
@@ -1615,7 +1636,7 @@ bool PPCFastISel::SelectRet(const Instruction *I) {
         RetRegs.push_back(VA.getLocReg());
         unsigned SrcReg = Reg + VA.getValNo();
 
-        EVT RVEVT = TLI.getValueType(RV->getType());
+        EVT RVEVT = TLI.getValueType(DL, RV->getType());
         if (!RVEVT.isSimple())
           return false;
         MVT RVVT = RVEVT.getSimpleVT();
@@ -1734,8 +1755,8 @@ bool PPCFastISel::SelectIndirectBr(const Instruction *I) {
   BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(PPC::BCTR8));
 
   const IndirectBrInst *IB = cast<IndirectBrInst>(I);
-  for (unsigned i = 0, e = IB->getNumSuccessors(); i != e; ++i)
-    FuncInfo.MBB->addSuccessor(FuncInfo.MBBMap[IB->getSuccessor(i)]);
+  for (const BasicBlock *SuccBB : IB->successors())
+    FuncInfo.MBB->addSuccessor(FuncInfo.MBBMap[SuccBB]);
 
   return true;
 }
@@ -1743,8 +1764,8 @@ bool PPCFastISel::SelectIndirectBr(const Instruction *I) {
 // Attempt to fast-select an integer truncate instruction.
 bool PPCFastISel::SelectTrunc(const Instruction *I) {
   Value *Src  = I->getOperand(0);
-  EVT SrcVT  = TLI.getValueType(Src->getType(), true);
-  EVT DestVT = TLI.getValueType(I->getType(), true);
+  EVT SrcVT = TLI.getValueType(DL, Src->getType(), true);
+  EVT DestVT = TLI.getValueType(DL, I->getType(), true);
 
   if (SrcVT != MVT::i64 && SrcVT != MVT::i32 && SrcVT != MVT::i16)
     return false;
@@ -1780,8 +1801,8 @@ bool PPCFastISel::SelectIntExt(const Instruction *I) {
   if (!SrcReg) return false;
 
   EVT SrcEVT, DestEVT;
-  SrcEVT = TLI.getValueType(SrcTy, true);
-  DestEVT = TLI.getValueType(DestTy, true);
+  SrcEVT = TLI.getValueType(DL, SrcTy, true);
+  DestEVT = TLI.getValueType(DL, DestTy, true);
   if (!SrcEVT.isSimple())
     return false;
   if (!DestEVT.isSimple())
@@ -1871,10 +1892,9 @@ unsigned PPCFastISel::PPCMaterializeFP(const ConstantFP *CFP, MVT VT) {
   unsigned DestReg = createResultReg(TLI.getRegClassFor(VT));
   CodeModel::Model CModel = TM.getCodeModel();
 
-  MachineMemOperand *MMO =
-    FuncInfo.MF->getMachineMemOperand(
-      MachinePointerInfo::getConstantPool(), MachineMemOperand::MOLoad,
-      (VT == MVT::f32) ? 4 : 8, Align);
+  MachineMemOperand *MMO = FuncInfo.MF->getMachineMemOperand(
+      MachinePointerInfo::getConstantPool(*FuncInfo.MF),
+      MachineMemOperand::MOLoad, (VT == MVT::f32) ? 4 : 8, Align);
 
   unsigned Opc = (VT == MVT::f32) ? PPC::LFS : PPC::LFD;
   unsigned TmpReg = createResultReg(&PPC::G8RC_and_G8RC_NOX0RegClass);
@@ -1949,19 +1969,15 @@ unsigned PPCFastISel::PPCMaterializeGV(const GlobalValue *GV, MVT VT) {
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(PPC::ADDIStocHA),
             HighPartReg).addReg(PPC::X2).addGlobalAddress(GV);
 
-    // If/when switches are implemented, jump tables should be handled
-    // on the "if" path here.
-    if (CModel == CodeModel::Large ||
-        (GV->getType()->getElementType()->isFunctionTy() &&
-         (GV->isDeclaration() || GV->isWeakForLinker())) ||
-        GV->isDeclaration() || GV->hasCommonLinkage() ||
-        GV->hasAvailableExternallyLinkage())
+    unsigned char GVFlags = PPCSubTarget->classifyGlobalReference(GV);
+    if (GVFlags & PPCII::MO_NLP_FLAG) {
       BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(PPC::LDtocL),
               DestReg).addGlobalAddress(GV).addReg(HighPartReg);
-    else
+    } else {
       // Otherwise generate the ADDItocL.
       BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(PPC::ADDItocL),
               DestReg).addReg(HighPartReg).addGlobalAddress(GV);
+    }
   }
 
   return DestReg;
@@ -2055,41 +2071,40 @@ unsigned PPCFastISel::PPCMaterialize64BitInt(int64_t Imm,
   return TmpReg3;
 }
 
-
 // Materialize an integer constant into a register, and return
 // the register number (or zero if we failed to handle it).
-unsigned PPCFastISel::PPCMaterializeInt(const Constant *C, MVT VT,
-                                                           bool UseSExt) {
+unsigned PPCFastISel::PPCMaterializeInt(const ConstantInt *CI, MVT VT,
+                                        bool UseSExt) {
   // If we're using CR bit registers for i1 values, handle that as a special
   // case first.
   if (VT == MVT::i1 && PPCSubTarget->useCRBits()) {
-    const ConstantInt *CI = cast<ConstantInt>(C);
     unsigned ImmReg = createResultReg(&PPC::CRBITRCRegClass);
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
             TII.get(CI->isZero() ? PPC::CRUNSET : PPC::CRSET), ImmReg);
     return ImmReg;
   }
 
-  if (VT != MVT::i64 && VT != MVT::i32 && VT != MVT::i16 &&
-      VT != MVT::i8 && VT != MVT::i1) 
+  if (VT != MVT::i64 && VT != MVT::i32 && VT != MVT::i16 && VT != MVT::i8 &&
+      VT != MVT::i1)
     return 0;
 
-  const TargetRegisterClass *RC = ((VT == MVT::i64) ? &PPC::G8RCRegClass :
-                                   &PPC::GPRCRegClass);
+  const TargetRegisterClass *RC =
+      ((VT == MVT::i64) ? &PPC::G8RCRegClass : &PPC::GPRCRegClass);
+  int64_t Imm = UseSExt ? CI->getSExtValue() : CI->getZExtValue();
 
   // If the constant is in range, use a load-immediate.
-  const ConstantInt *CI = cast<ConstantInt>(C);
-  if (isInt<16>(CI->getSExtValue())) {
+  // Since LI will sign extend the constant we need to make sure that for
+  // our zeroext constants that the sign extended constant fits into 16-bits -
+  // a range of 0..0x7fff.
+  if (isInt<16>(Imm)) {
     unsigned Opc = (VT == MVT::i64) ? PPC::LI8 : PPC::LI;
     unsigned ImmReg = createResultReg(RC);
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(Opc), ImmReg)
-      .addImm( (UseSExt) ? CI->getSExtValue() : CI->getZExtValue() );
+        .addImm(Imm);
     return ImmReg;
   }
 
   // Construct the constant piecewise.
-  int64_t Imm = CI->getZExtValue();
-
   if (VT == MVT::i64)
     return PPCMaterialize64BitInt(Imm, RC);
   else if (VT == MVT::i32)
@@ -2101,7 +2116,7 @@ unsigned PPCFastISel::PPCMaterializeInt(const Constant *C, MVT VT,
 // Materialize a constant into a register, and return the register
 // number (or zero if we failed to handle it).
 unsigned PPCFastISel::fastMaterializeConstant(const Constant *C) {
-  EVT CEVT = TLI.getValueType(C->getType(), true);
+  EVT CEVT = TLI.getValueType(DL, C->getType(), true);
 
   // Only handle simple types.
   if (!CEVT.isSimple()) return 0;
@@ -2111,8 +2126,8 @@ unsigned PPCFastISel::fastMaterializeConstant(const Constant *C) {
     return PPCMaterializeFP(CFP, VT);
   else if (const GlobalValue *GV = dyn_cast<GlobalValue>(C))
     return PPCMaterializeGV(GV, VT);
-  else if (isa<ConstantInt>(C))
-    return PPCMaterializeInt(C, VT, VT != MVT::i1);
+  else if (const ConstantInt *CI = dyn_cast<ConstantInt>(C))
+    return PPCMaterializeInt(CI, VT, VT != MVT::i1);
 
   return 0;
 }

@@ -17,7 +17,7 @@ define i32 @functional(i32 %a, i32 %b) {
 ; CHECK: %[[CALL:.*]] = call { i32 (i32, i32)*, i16 } @"dfs$g"(i32 %0, i16 0)
 ; CHECK: %[[XVAL:.*]] = extractvalue { i32 (i32, i32)*, i16 } %[[CALL]], 0
 ; CHECK: ret {{.*}} %[[XVAL]]
-@discardg = alias i32 (i32, i32)* (i32)* @g
+@discardg = alias i32 (i32, i32)* (i32), i32 (i32, i32)* (i32)* @g
 
 declare void @custom1(i32 %a, i32 %b)
 
@@ -61,13 +61,13 @@ define void @f(i32 %x) {
   ; CHECK: %[[LABELVA1_1:.*]] = getelementptr inbounds [2 x i16], [2 x i16]* %[[LABELVA1]], i32 0, i32 1
   ; CHECK: store i16 %{{.*}}, i16* %[[LABELVA1_1]]
   ; CHECK: %[[LABELVA1_0A:.*]] = getelementptr inbounds [2 x i16], [2 x i16]* %[[LABELVA1]], i32 0, i32 0
-  ; CHECK: call void (i32, i16, i16*, ...)* @__dfsw_custom3(i32 1, i16 0, i16* %[[LABELVA1_0A]], i32 2, i32 %{{.*}})
-  call void (i32, ...)* @custom3(i32 1, i32 2, i32 %x)
+  ; CHECK: call void (i32, i16, i16*, ...) @__dfsw_custom3(i32 1, i16 0, i16* %[[LABELVA1_0A]], i32 2, i32 %{{.*}})
+  call void (i32, ...) @custom3(i32 1, i32 2, i32 %x)
 
   ; CHECK: %[[LABELVA2_0:.*]] = getelementptr inbounds [2 x i16], [2 x i16]* %[[LABELVA2]], i32 0, i32 0
   ; CHECK: %[[LABELVA2_0A:.*]] = getelementptr inbounds [2 x i16], [2 x i16]* %[[LABELVA2]], i32 0, i32 0
-  ; CHECK: call i32 (i32, i16, i16*, i16*, ...)* @__dfsw_custom4(i32 1, i16 0, i16* %[[LABELVA2_0A]], i16* %[[LABELRETURN]], i32 2, i32 3)
-  call i32 (i32, ...)* @custom4(i32 1, i32 2, i32 3)
+  ; CHECK: call i32 (i32, i16, i16*, i16*, ...) @__dfsw_custom4(i32 1, i16 0, i16* %[[LABELVA2_0A]], i16* %[[LABELRETURN]], i32 2, i32 3)
+  call i32 (i32, ...) @custom4(i32 1, i32 2, i32 3)
 
   ret void
 }
@@ -83,7 +83,7 @@ define i32 (i32, i32)* @g(i32) {
 ; CHECK: %[[IVAL0:.*]] = insertvalue { i32, i16 } undef, i32 %[[CALL]], 0
 ; CHECK: %[[IVAL1:.*]] = insertvalue { i32, i16 } %[[IVAL0]], i16 0, 1
 ; CHECK: ret { i32, i16 } %[[IVAL1]]
-@adiscard = alias i32 (i32, i32)* @discard
+@adiscard = alias i32 (i32, i32), i32 (i32, i32)* @discard
 
 ; CHECK: declare void @__dfsw_custom1(i32, i32, i16, i16)
 ; CHECK: declare i32 @__dfsw_custom2(i32, i32, i16, i16, i16*)

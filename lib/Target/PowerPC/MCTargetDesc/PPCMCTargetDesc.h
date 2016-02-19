@@ -29,7 +29,9 @@ class MCObjectWriter;
 class MCRegisterInfo;
 class MCSubtargetInfo;
 class Target;
+class Triple;
 class StringRef;
+class raw_pwrite_stream;
 class raw_ostream;
 
 extern Target ThePPC32Target;
@@ -41,15 +43,13 @@ MCCodeEmitter *createPPCMCCodeEmitter(const MCInstrInfo &MCII,
                                       MCContext &Ctx);
 
 MCAsmBackend *createPPCAsmBackend(const Target &T, const MCRegisterInfo &MRI,
-                                  StringRef TT, StringRef CPU);
+                                  const Triple &TT, StringRef CPU);
 
 /// Construct an PPC ELF object writer.
-MCObjectWriter *createPPCELFObjectWriter(raw_ostream &OS,
-                                         bool Is64Bit,
-                                         bool IsLittleEndian,
-                                         uint8_t OSABI);
+MCObjectWriter *createPPCELFObjectWriter(raw_pwrite_stream &OS, bool Is64Bit,
+                                         bool IsLittleEndian, uint8_t OSABI);
 /// Construct a PPC Mach-O object writer.
-MCObjectWriter *createPPCMachObjectWriter(raw_ostream &OS, bool Is64Bit,
+MCObjectWriter *createPPCMachObjectWriter(raw_pwrite_stream &OS, bool Is64Bit,
                                           uint32_t CPUType,
                                           uint32_t CPUSubtype);
 

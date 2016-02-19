@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements the common infrastructure (including C bindings) for 
-// libLLVMIPO.a, which implements several transformations over the LLVM 
+// This file implements the common infrastructure (including C bindings) for
+// libLLVMIPO.a, which implements several transformations over the LLVM
 // intermediate representation.
 //
 //===----------------------------------------------------------------------===//
@@ -18,20 +18,23 @@
 #include "llvm/InitializePasses.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Transforms/IPO.h"
+#include "llvm/Transforms/IPO/FunctionAttrs.h"
 
 using namespace llvm;
 
 void llvm::initializeIPO(PassRegistry &Registry) {
   initializeArgPromotionPass(Registry);
   initializeConstantMergePass(Registry);
+  initializeCrossDSOCFIPass(Registry);
   initializeDAEPass(Registry);
   initializeDAHPass(Registry);
-  initializeFunctionAttrsPass(Registry);
+  initializeForceFunctionAttrsLegacyPassPass(Registry);
   initializeGlobalDCEPass(Registry);
   initializeGlobalOptPass(Registry);
   initializeIPCPPass(Registry);
   initializeAlwaysInlinerPass(Registry);
   initializeSimpleInlinerPass(Registry);
+  initializeInferFunctionAttrsLegacyPassPass(Registry);
   initializeInternalizePassPass(Registry);
   initializeLoopExtractorPass(Registry);
   initializeBlockExtractorPassPass(Registry);
@@ -39,13 +42,19 @@ void llvm::initializeIPO(PassRegistry &Registry) {
   initializeLowerBitSetsPass(Registry);
   initializeMergeFunctionsPass(Registry);
   initializePartialInlinerPass(Registry);
+  initializePostOrderFunctionAttrsLegacyPassPass(Registry);
+  initializeReversePostOrderFunctionAttrsPass(Registry);
   initializePruneEHPass(Registry);
-  initializeStripDeadPrototypesPassPass(Registry);
+  initializeStripDeadPrototypesLegacyPassPass(Registry);
   initializeStripSymbolsPass(Registry);
   initializeStripDebugDeclarePass(Registry);
   initializeStripDeadDebugInfoPass(Registry);
   initializeStripNonDebugSymbolsPass(Registry);
   initializeBarrierNoopPass(Registry);
+  initializeEliminateAvailableExternallyPass(Registry);
+  initializeSampleProfileLoaderPass(Registry);
+  initializeFunctionImportPassPass(Registry);
+  initializeWholeProgramDevirtPass(Registry);
 }
 
 void LLVMInitializeIPO(LLVMPassRegistryRef R) {
@@ -65,7 +74,7 @@ void LLVMAddDeadArgEliminationPass(LLVMPassManagerRef PM) {
 }
 
 void LLVMAddFunctionAttrsPass(LLVMPassManagerRef PM) {
-  unwrap(PM)->add(createFunctionAttrsPass());
+  unwrap(PM)->add(createPostOrderFunctionAttrsLegacyPass());
 }
 
 void LLVMAddFunctionInliningPass(LLVMPassManagerRef PM) {

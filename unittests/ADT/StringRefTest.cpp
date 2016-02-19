@@ -225,6 +225,59 @@ TEST(StringRefTest, Split2) {
   expected.push_back("a"); expected.push_back("b"); expected.push_back("c");
   StringRef("a,,b,c").split(parts, ",", 3, false);
   EXPECT_TRUE(parts == expected);
+
+  expected.clear(); parts.clear();
+  expected.push_back("a"); expected.push_back("b"); expected.push_back("c");
+  StringRef("a,,b,c").split(parts, ',', 3, false);
+  EXPECT_TRUE(parts == expected);
+
+  expected.clear(); parts.clear();
+  expected.push_back("");
+  StringRef().split(parts, ",", 0, true);
+  EXPECT_TRUE(parts == expected);
+
+  expected.clear(); parts.clear();
+  expected.push_back(StringRef());
+  StringRef("").split(parts, ",", 0, true);
+  EXPECT_TRUE(parts == expected);
+
+  expected.clear(); parts.clear();
+  StringRef("").split(parts, ",", 0, false);
+  EXPECT_TRUE(parts == expected);
+  StringRef().split(parts, ",", 0, false);
+  EXPECT_TRUE(parts == expected);
+
+  expected.clear(); parts.clear();
+  expected.push_back("a");
+  expected.push_back("");
+  expected.push_back("b");
+  expected.push_back("c,d");
+  StringRef("a,,b,c,d").split(parts, ",", 3, true);
+  EXPECT_TRUE(parts == expected);
+
+  expected.clear(); parts.clear();
+  expected.push_back("");
+  StringRef().split(parts, ',', 0, true);
+  EXPECT_TRUE(parts == expected);
+
+  expected.clear(); parts.clear();
+  expected.push_back(StringRef());
+  StringRef("").split(parts, ',', 0, true);
+  EXPECT_TRUE(parts == expected);
+
+  expected.clear(); parts.clear();
+  StringRef("").split(parts, ',', 0, false);
+  EXPECT_TRUE(parts == expected);
+  StringRef().split(parts, ',', 0, false);
+  EXPECT_TRUE(parts == expected);
+
+  expected.clear(); parts.clear();
+  expected.push_back("a");
+  expected.push_back("");
+  expected.push_back("b");
+  expected.push_back("c,d");
+  StringRef("a,,b,c,d").split(parts, ',', 3, true);
+  EXPECT_TRUE(parts == expected);
 }
 
 TEST(StringRefTest, Trim) {
@@ -248,7 +301,7 @@ TEST(StringRefTest, Trim) {
   EXPECT_EQ(StringRef(""), StringRef(" ").trim());
   EXPECT_EQ(StringRef("\0", 1), StringRef(" \0 ", 3).trim());
   EXPECT_EQ(StringRef("\0\0", 2), StringRef("\0\0", 2).trim());
-  EXPECT_EQ(StringRef("x"), StringRef("\0\0x\0\0", 5).trim(StringRef("\0", 1)));
+  EXPECT_EQ(StringRef("x"), StringRef("\0\0x\0\0", 5).trim('\0'));
 }
 
 TEST(StringRefTest, StartsWith) {

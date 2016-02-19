@@ -42,6 +42,18 @@ OPTIONS
 
   File to check (defaults to stdin).
 
+.. option:: --match-full-lines
+
+ By default, FileCheck allows matches of anywhere on a line. This
+ option will require all positive matches to cover an entire
+ line. Leading and trailing whitespace is ignored, unless
+ :option:`--strict-whitespace` is also specified. (Note: negative
+ matches from ``CHECK-NOT`` are not affected by this option!)
+
+ Passing this option is equivalent to inserting ``{{^ *}}`` or
+ ``{{^}}`` before, and ``{{ *$}}`` or ``{{$}}`` after every positive
+ check pattern.
+
 .. option:: --strict-whitespace
 
  By default, FileCheck canonicalizes input horizontal whitespace (spaces and
@@ -200,9 +212,9 @@ For example, the following works like you'd expect:
 
 .. code-block:: llvm
 
-   !0 = !MDLocation(line: 5, scope: !1, inlinedAt: !2)
+   !0 = !DILocation(line: 5, scope: !1, inlinedAt: !2)
 
-   ; CHECK:       !MDLocation(line: 5,
+   ; CHECK:       !DILocation(line: 5,
    ; CHECK-NOT:               column:
    ; CHECK-SAME:              scope: ![[SCOPE:[0-9]+]]
 

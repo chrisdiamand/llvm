@@ -13,23 +13,18 @@ Architecture & Platform Information for Compiler Writers
 Hardware
 ========
 
-ARM
----
+AArch64 & ARM
+-------------
 
-* `ARM documentation <http://www.arm.com/documentation/>`_ (`Processor Cores <http://www.arm.com/documentation/ARMProcessor_Cores/>`_ Cores)
+* `ARMv8-A Architecture Reference Manual <http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0487a.h/index.html>`_ (authentication required, free sign-up). This document covers both AArch64 and ARM instructions
 
-* `ABI <http://www.arm.com/products/DevTools/ABI.html>`_
+* `ARMv7-M Architecture Reference Manual` <http://infocenter.arm.com/help/topic/com.arm.doc.ddi0403e.b/index.html>`_ (authentication required, free sign-up). This covers the Thumb2-only microcontrollers
 
-* `ABI Addenda and Errata <http://infocenter.arm.com/help/topic/com.arm.doc.ihi0045d/IHI0045D_ABI_addenda.pdf>`_
+* `ARMv6-M Architecture Reference Manual` <http://infocenter.arm.com/help/topic/com.arm.doc.ddi0419c/index.html>_ (authentication required, free sign-up). This covers the Thumb1-only microcontrollers
 
-* `ARM C Language Extensions <http://infocenter.arm.com/help/topic/com.arm.doc.ihi0053a/IHI0053A_acle.pdf>`_
+* `ARM C Language Extensions <http://infocenter.arm.com/help/topic/com.arm.doc.ihi0053c/IHI0053C_acle_2_0.pdf>`_
 
-AArch64
--------
-
-* `ARMv8 Instruction Set Overview <http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.genc010197a/index.html>`_
-
-* `ARM C Language Extensions <http://infocenter.arm.com/help/topic/com.arm.doc.ihi0053a/IHI0053A_acle.pdf>`_
+* AArch32 `ABI Addenda and Errata <http://infocenter.arm.com/help/topic/com.arm.doc.ihi0045d/IHI0045D_ABI_addenda.pdf>`_
 
 Itanium (ia64)
 --------------
@@ -68,8 +63,8 @@ Other documents, collections, notes
 * `PowerPC64 alignment of long doubles (from GCC) <http://gcc.gnu.org/ml/gcc-patches/2003-09/msg00997.html>`_
 * `Long branch stubs for powerpc64-linux (from binutils) <http://sources.redhat.com/ml/binutils/2002-04/msg00573.html>`_
 
-R600
-----
+AMDGPU
+------
 
 * `AMD R6xx shader ISA <http://developer.amd.com/wordpress/media/2012/10/R600_Instruction_Set_Architecture.pdf>`_
 * `AMD R7xx shader ISA <http://developer.amd.com/wordpress/media/2012/10/R700-Family_Instruction_Set_Architecture.pdf>`_

@@ -165,8 +165,10 @@ public:
     if (Size > (size_t)(OutBufEnd - OutBufCur))
       return write(Str.data(), Size);
 
-    memcpy(OutBufCur, Str.data(), Size);
-    OutBufCur += Size;
+    if (Size) {
+      memcpy(OutBufCur, Str.data(), Size);
+      OutBufCur += Size;
+    }
     return *this;
   }
 
@@ -216,13 +218,12 @@ public:
 
   // Formatted output, see the leftJustify() function in Support/Format.h.
   raw_ostream &operator<<(const FormattedString &);
-  
+
   // Formatted output, see the formatHex() function in Support/Format.h.
   raw_ostream &operator<<(const FormattedNumber &);
-  
+
   /// indent - Insert 'NumSpaces' spaces.
   raw_ostream &indent(unsigned NumSpaces);
-
 
   /// Changes the foreground color of text that will be output from this point
   /// forward.
@@ -244,7 +245,7 @@ public:
   /// outputting colored text, or before program exit.
   virtual raw_ostream &resetColor() { return *this; }
 
-  /// Reverses the forground and background colors.
+  /// Reverses the foreground and background colors.
   virtual raw_ostream &reverseColor() { return *this; }
 
   /// This function determines if this stream is connected to a "tty" or
@@ -313,13 +314,34 @@ private:
   void copy_to_buffer(const char *Ptr, size_t Size);
 };
 
+/// An abstract base class for streams implementations that also support a
+/// pwrite operation. This is useful for code that can mostly stream out data,
+/// but needs to patch in a header that needs to know the output size.
+class raw_pwrite_stream : public raw_ostream {
+  virtual void pwrite_impl(const char *Ptr, size_t Size, uint64_t Offset) = 0;
+
+public:
+  explicit raw_pwrite_stream(bool Unbuffered = false)
+      : raw_ostream(Unbuffered) {}
+  void pwrite(const char *Ptr, size_t Size, uint64_t Offset) {
+#ifndef NDBEBUG
+    uint64_t Pos = tell();
+    // /dev/null always reports a pos of 0, so we cannot perform this check
+    // in that case.
+    if (Pos)
+      assert(Size + Offset <= Pos && "We don't support extending the stream");
+#endif
+    pwrite_impl(Ptr, Size, Offset);
+  }
+};
+
 //===----------------------------------------------------------------------===//
 // File Output Streams
 //===----------------------------------------------------------------------===//
 
 /// A raw_ostream that writes to a file descriptor.
 ///
-class raw_fd_ostream : public raw_ostream {
+class raw_fd_ostream : public raw_pwrite_stream {
   int FD;
   bool ShouldClose;
 
@@ -327,14 +349,14 @@ class raw_fd_ostream : public raw_ostream {
   ///
   bool Error;
 
-  /// Controls whether the stream should attempt to use atomic writes, when
-  /// possible.
-  bool UseAtomicWrites;
-
   uint64_t pos;
+
+  bool SupportsSeeking;
 
   /// See raw_ostream::write_impl.
   void write_impl(const char *Ptr, size_t Size) override;
+
+  void pwrite_impl(const char *Ptr, size_t Size, uint64_t Offset) override;
 
   /// Return the current position within the stream, not counting the bytes
   /// currently in the buffer.
@@ -364,25 +386,17 @@ public:
   /// this closes the file when the stream is destroyed.
   raw_fd_ostream(int fd, bool shouldClose, bool unbuffered=false);
 
-  ~raw_fd_ostream();
+  ~raw_fd_ostream() override;
 
   /// Manually flush the stream and close the file. Note that this does not call
   /// fsync.
   void close();
 
+  bool supportsSeeking() { return SupportsSeeking; }
+
   /// Flushes the stream and repositions the underlying file descriptor position
   /// to the offset specified from the beginning of the file.
   uint64_t seek(uint64_t off);
-
-  /// Set the stream to attempt to use atomic writes for individual output
-  /// routines where possible.
-  ///
-  /// Note that because raw_ostream's are typically buffered, this flag is only
-  /// sensible when used on unbuffered streams which will flush their output
-  /// immediately.
-  void SetUseAtomicWrites(bool Value) {
-    UseAtomicWrites = Value;
-  }
 
   raw_ostream &changeColor(enum Colors colors, bool bold=false,
                            bool bg=false) override;
@@ -442,9 +456,10 @@ class raw_string_ostream : public raw_ostream {
   /// Return the current position within the stream, not counting the bytes
   /// currently in the buffer.
   uint64_t current_pos() const override { return OS.size(); }
+
 public:
   explicit raw_string_ostream(std::string &O) : OS(O) {}
-  ~raw_string_ostream();
+  ~raw_string_ostream() override;
 
   /// Flushes the stream contents to the target string and returns  the string's
   /// reference.
@@ -456,37 +471,41 @@ public:
 
 /// A raw_ostream that writes to an SmallVector or SmallString.  This is a
 /// simple adaptor class. This class does not encounter output errors.
-class raw_svector_ostream : public raw_ostream {
+/// raw_svector_ostream operates without a buffer, delegating all memory
+/// management to the SmallString. Thus the SmallString is always up-to-date,
+/// may be used directly and there is no need to call flush().
+class raw_svector_ostream : public raw_pwrite_stream {
   SmallVectorImpl<char> &OS;
 
   /// See raw_ostream::write_impl.
   void write_impl(const char *Ptr, size_t Size) override;
 
-  /// Return the current position within the stream, not counting the bytes
-  /// currently in the buffer.
+  void pwrite_impl(const char *Ptr, size_t Size, uint64_t Offset) override;
+
+  /// Return the current position within the stream.
   uint64_t current_pos() const override;
+
 public:
   /// Construct a new raw_svector_ostream.
   ///
   /// \param O The vector to write to; this should generally have at least 128
   /// bytes free to avoid any extraneous memory overhead.
-  explicit raw_svector_ostream(SmallVectorImpl<char> &O);
-  ~raw_svector_ostream();
+  explicit raw_svector_ostream(SmallVectorImpl<char> &O) : OS(O) {
+    SetUnbuffered();
+  }
+  ~raw_svector_ostream() override {}
 
-  /// This is called when the SmallVector we're appending to is changed outside
-  /// of the raw_svector_ostream's control.  It is only safe to do this if the
-  /// raw_svector_ostream has previously been flushed.
-  void resync();
+  void flush() = delete;
 
-  /// Flushes the stream contents to the target vector and return a StringRef
-  /// for the vector contents.
-  StringRef str();
+  /// Return a StringRef for the vector contents.
+  StringRef str() { return StringRef(OS.data(), OS.size()); }
 };
 
 /// A raw_ostream that discards all output.
-class raw_null_ostream : public raw_ostream {
+class raw_null_ostream : public raw_pwrite_stream {
   /// See raw_ostream::write_impl.
   void write_impl(const char *Ptr, size_t size) override;
+  void pwrite_impl(const char *Ptr, size_t Size, uint64_t Offset) override;
 
   /// Return the current position within the stream, not counting the bytes
   /// currently in the buffer.
@@ -494,9 +513,18 @@ class raw_null_ostream : public raw_ostream {
 
 public:
   explicit raw_null_ostream() {}
-  ~raw_null_ostream();
+  ~raw_null_ostream() override;
+};
+
+class buffer_ostream : public raw_svector_ostream {
+  raw_ostream &OS;
+  SmallVector<char, 0> Buffer;
+
+public:
+  buffer_ostream(raw_ostream &OS) : raw_svector_ostream(Buffer), OS(OS) {}
+  ~buffer_ostream() override { OS << str(); }
 };
 
 } // end llvm namespace
 
-#endif
+#endif // LLVM_SUPPORT_RAW_OSTREAM_H

@@ -1,4 +1,4 @@
-; RUN: llc  -march=mipsel -mcpu=mips16 -relocation-model=pic -O3 < %s | FileCheck %s -check-prefix=16
+; RUN: llc  -march=mipsel -mattr=mips16 -relocation-model=pic -O3 < %s | FileCheck %s -check-prefix=16
 
 @c = global i8 -1, align 1
 @.str = private unnamed_addr constant [5 x i8] c"%i \0A\00", align 1
@@ -11,7 +11,7 @@ entry:
   %conv = sext i8 %0 to i32
   store i32 %conv, i32* %i, align 4
   %1 = load i32, i32* %i, align 4
-  %call = call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.str, i32 0, i32 0), i32 %1)
+  %call = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.str, i32 0, i32 0), i32 %1)
   ret i32 0
 }
 

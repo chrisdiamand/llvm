@@ -93,7 +93,7 @@ for.cond4:                                        ; preds = %for.inc, %for.body3
   %cmp5 = icmp slt i32 %2, 100
   br i1 %cmp5, label %for.body6, label %for.end, !prof !3
 
-; CHECK: - for.body6: float = 500000.5, int = 4000003
+; CHECK: - for.body6: float = 500000.5, int = 4000004
 for.body6:                                        ; preds = %for.cond4
   call void @bar()
   br label %for.inc
@@ -124,7 +124,7 @@ for.inc10:                                        ; preds = %for.end9
 
 for.end12:                                        ; preds = %for.cond
   %6 = load i32, i32* @g, align 4
-  %call = call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([8 x i8], [8 x i8]* @.str, i32 0, i32 0), i32 %6)
+  %call = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([8 x i8], [8 x i8]* @.str, i32 0, i32 0), i32 %6)
   store i32 0, i32* @g, align 4
   store i32 0, i32* %i, align 4
   br label %for.cond13
@@ -143,7 +143,7 @@ for.cond16:                                       ; preds = %for.inc19, %for.bod
   %cmp17 = icmp slt i32 %8, 10000
   br i1 %cmp17, label %for.body18, label %for.end21, !prof !4
 
-; CHECK: - for.body18: float = 500000.5, int = 4000003
+; CHECK: - for.body18: float = 499999.9, int = 3999998
 for.body18:                                       ; preds = %for.cond16
   call void @bar()
   br label %for.inc19
@@ -165,7 +165,7 @@ for.inc22:                                        ; preds = %for.end21
 
 for.end24:                                        ; preds = %for.cond13
   %11 = load i32, i32* @g, align 4
-  %call25 = call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([8 x i8], [8 x i8]* @.str, i32 0, i32 0), i32 %11)
+  %call25 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([8 x i8], [8 x i8]* @.str, i32 0, i32 0), i32 %11)
   store i32 0, i32* @g, align 4
   store i32 0, i32* %i, align 4
   br label %for.cond26
@@ -175,7 +175,7 @@ for.cond26:                                       ; preds = %for.inc29, %for.end
   %cmp27 = icmp slt i32 %12, 1000000
   br i1 %cmp27, label %for.body28, label %for.end31, !prof !5
 
-; CHECK: - for.body28: float = 500000.5, int = 4000003
+; CHECK: - for.body28: float = 499995.2, int = 3999961
 for.body28:                                       ; preds = %for.cond26
   call void @bar()
   br label %for.inc29
@@ -188,7 +188,7 @@ for.inc29:                                        ; preds = %for.body28
 
 for.end31:                                        ; preds = %for.cond26
   %14 = load i32, i32* @g, align 4
-  %call32 = call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([8 x i8], [8 x i8]* @.str, i32 0, i32 0), i32 %14)
+  %call32 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([8 x i8], [8 x i8]* @.str, i32 0, i32 0), i32 %14)
   store i32 0, i32* @g, align 4
   %15 = load i32, i32* %retval
   ret i32 %15

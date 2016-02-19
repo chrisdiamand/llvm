@@ -75,7 +75,7 @@ define i32 @test5(double %A) nounwind  {
  br i1 %bothcond, label %bb8, label %bb12
 
  bb8:; preds = %entry
- %tmp9 = tail call i32 (...)* @foo( ) nounwind ; <i32> [#uses=1]
+ %tmp9 = tail call i32 (...) @foo( ) nounwind ; <i32> [#uses=1]
  ret i32 %tmp9
 
  bb12:; preds = %entry
@@ -210,4 +210,48 @@ define zeroext i1 @test15(i32 %bf.load, i32 %n) {
 ; CHECK-LABEL: test15:
 ; CHECK:  shrl	$16, %edi
 ; CHECK:  cmpl	%esi, %edi
+}
+
+define i8 @test16(i16 signext %L) {
+  %lshr  = lshr i16 %L, 15
+  %trunc = trunc i16 %lshr to i8
+  %not   = xor i8 %trunc, 1
+  ret i8 %not
+
+; CHECK-LABEL: test16:
+; CHECK:  testw   %di, %di
+; CHECK:  setns   %al
+}
+
+define i8 @test17(i32 %L) {
+  %lshr  = lshr i32 %L, 31
+  %trunc = trunc i32 %lshr to i8
+  %not   = xor i8 %trunc, 1
+  ret i8 %not
+
+; CHECK-LABEL: test17:
+; CHECK:  testl   %edi, %edi
+; CHECK:  setns   %al
+}
+
+define i8 @test18(i64 %L) {
+  %lshr  = lshr i64 %L, 63
+  %trunc = trunc i64 %lshr to i8
+  %not   = xor i8 %trunc, 1
+  ret i8 %not
+
+; CHECK-LABEL: test18:
+; CHECK:  testq   %rdi, %rdi
+; CHECK:  setns   %al
+}
+
+define zeroext i1 @test19(i32 %L) {
+  %lshr  = lshr i32 %L, 31
+  %trunc = trunc i32 %lshr to i1
+  %not   = xor i1 %trunc, 1
+  ret i1 %not
+
+; CHECK-LABEL: test19:
+; CHECK:  testl   %edi, %edi
+; CHECK:  setns   %al
 }

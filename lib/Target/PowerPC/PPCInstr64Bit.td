@@ -56,22 +56,23 @@ def tlscall : Operand<i64> {
 
 def SHL64 : SDNodeXForm<imm, [{
   // Transformation function: 63 - imm
-  return getI32Imm(63 - N->getZExtValue());
+  return getI32Imm(63 - N->getZExtValue(), SDLoc(N));
 }]>;
 
 def SRL64 : SDNodeXForm<imm, [{
   // Transformation function: 64 - imm
-  return N->getZExtValue() ? getI32Imm(64 - N->getZExtValue()) : getI32Imm(0);
+  return N->getZExtValue() ? getI32Imm(64 - N->getZExtValue(), SDLoc(N))
+                           : getI32Imm(0, SDLoc(N));
 }]>;
 
 def HI32_48 : SDNodeXForm<imm, [{
   // Transformation function: shift the immediate value down into the low bits.
-  return getI32Imm((unsigned short)(N->getZExtValue() >> 32));
+  return getI32Imm((unsigned short)(N->getZExtValue() >> 32, SDLoc(N)));
 }]>;
 
 def HI48_64 : SDNodeXForm<imm, [{
   // Transformation function: shift the immediate value down into the low bits.
-  return getI32Imm((unsigned short)(N->getZExtValue() >> 48));
+  return getI32Imm((unsigned short)(N->getZExtValue() >> 48, SDLoc(N)));
 }]>;
 
 
@@ -298,22 +299,35 @@ def : Pat<(PPCtc_return CTRRC8:$dst, imm:$imm),
 // 64-bit CR instructions
 let Interpretation64Bit = 1, isCodeGenOnly = 1 in {
 let hasSideEffects = 0 in {
+// mtocrf's input needs to be prepared by shifting by an amount dependent
+// on the cr register selected. Thus, post-ra anti-dep breaking must not
+// later change that register assignment.
+let hasExtraDefRegAllocReq = 1 in {
 def MTOCRF8: XFXForm_5a<31, 144, (outs crbitm:$FXM), (ins g8rc:$ST),
                         "mtocrf $FXM, $ST", IIC_BrMCRX>,
             PPC970_DGroup_First, PPC970_Unit_CRU;
 
+// Similarly to mtocrf, the mask for mtcrf must be prepared in a way that
+// is dependent on the cr fields being set.
 def MTCRF8 : XFXForm_5<31, 144, (outs), (ins i32imm:$FXM, g8rc:$rS),
                       "mtcrf $FXM, $rS", IIC_BrMCRX>,
             PPC970_MicroCode, PPC970_Unit_CRU;
+} // hasExtraDefRegAllocReq = 1
 
-let hasExtraSrcRegAllocReq = 1 in // to enable post-ra anti-dep breaking.
+// mfocrf's input needs to be prepared by shifting by an amount dependent
+// on the cr register selected. Thus, post-ra anti-dep breaking must not
+// later change that register assignment.
+let hasExtraSrcRegAllocReq = 1 in {
 def MFOCRF8: XFXForm_5a<31, 19, (outs g8rc:$rT), (ins crbitm:$FXM),
                         "mfocrf $rT, $FXM", IIC_SprMFCRF>,
              PPC970_DGroup_First, PPC970_Unit_CRU;
 
+// Similarly to mfocrf, the mask for mfcrf must be prepared in a way that
+// is dependent on the cr fields being copied.
 def MFCR8 : XFXForm_3<31, 19, (outs g8rc:$rT), (ins),
                      "mfcr $rT", IIC_SprMFCR>,
                      PPC970_MicroCode, PPC970_Unit_CRU;
+} // hasExtraSrcRegAllocReq = 1
 } // hasSideEffects = 0
 
 let hasSideEffects = 1, isBarrier = 1, usesCustomInserter = 1 in {
@@ -368,6 +382,8 @@ let Defs = [X1], Uses = [X1] in
 def DYNALLOC8 : Pseudo<(outs g8rc:$result), (ins g8rc:$negsize, memri:$fpsi),"#DYNALLOC8",
                        [(set i64:$result,
                              (PPCdynalloc i64:$negsize, iaddr:$fpsi))]>;
+def DYNAREAOFFSET8 : Pseudo<(outs i64imm:$result), (ins memri:$fpsi), "#DYNAREAOFFSET8",
+                       [(set i64:$result, (PPCdynareaoffset iaddr:$fpsi))]>;
 
 let Defs = [LR8] in {
 def MTLR8  : XFXForm_7_ext<31, 467, 8, (outs), (ins g8rc:$rS),
@@ -603,6 +619,10 @@ defm CNTLZD : XForm_11r<31, 58, (outs g8rc:$rA), (ins g8rc:$rS),
 def POPCNTD : XForm_11<31, 506, (outs g8rc:$rA), (ins g8rc:$rS),
                        "popcntd $rA, $rS", IIC_IntGeneral,
                        [(set i64:$rA, (ctpop i64:$rS))]>;
+def BPERMD : XForm_6<31, 252, (outs g8rc:$rA), (ins g8rc:$rS, g8rc:$rB),
+                     "bpermd $rA, $rS, $rB", IIC_IntGeneral,
+                     [(set i64:$rA, (int_ppc_bpermd g8rc:$rS, g8rc:$rB))]>,
+                     isPPC64, Requires<[HasBPERMD]>;
 
 let isCodeGenOnly = 1, isCommutable = 1 in
 def CMPB8 : XForm_6<31, 508, (outs g8rc:$rA), (ins g8rc:$rS, g8rc:$rB),
@@ -616,14 +636,30 @@ def POPCNTW : XForm_11<31, 378, (outs gprc:$rA), (ins gprc:$rS),
                        "popcntw $rA, $rS", IIC_IntGeneral,
                        [(set i32:$rA, (ctpop i32:$rS))]>;
 
-defm DIVD  : XOForm_1r<31, 489, 0, (outs g8rc:$rT), (ins g8rc:$rA, g8rc:$rB),
-                       "divd", "$rT, $rA, $rB", IIC_IntDivD,
-                       [(set i64:$rT, (sdiv i64:$rA, i64:$rB))]>, isPPC64,
-                       PPC970_DGroup_First, PPC970_DGroup_Cracked;
-defm DIVDU : XOForm_1r<31, 457, 0, (outs g8rc:$rT), (ins g8rc:$rA, g8rc:$rB),
-                       "divdu", "$rT, $rA, $rB", IIC_IntDivD,
-                       [(set i64:$rT, (udiv i64:$rA, i64:$rB))]>, isPPC64,
-                       PPC970_DGroup_First, PPC970_DGroup_Cracked;
+defm DIVD  : XOForm_1rcr<31, 489, 0, (outs g8rc:$rT), (ins g8rc:$rA, g8rc:$rB),
+                          "divd", "$rT, $rA, $rB", IIC_IntDivD,
+                          [(set i64:$rT, (sdiv i64:$rA, i64:$rB))]>, isPPC64;
+defm DIVDU : XOForm_1rcr<31, 457, 0, (outs g8rc:$rT), (ins g8rc:$rA, g8rc:$rB),
+                          "divdu", "$rT, $rA, $rB", IIC_IntDivD,
+                          [(set i64:$rT, (udiv i64:$rA, i64:$rB))]>, isPPC64;
+def DIVDE : XOForm_1<31, 425, 0, (outs g8rc:$rT), (ins g8rc:$rA, g8rc:$rB),
+                     "divde $rT, $rA, $rB", IIC_IntDivD,
+                     [(set i64:$rT, (int_ppc_divde g8rc:$rA, g8rc:$rB))]>,
+                     isPPC64, Requires<[HasExtDiv]>;
+let Defs = [CR0] in
+def DIVDEo : XOForm_1<31, 425, 0, (outs g8rc:$rT), (ins g8rc:$rA, g8rc:$rB),
+                      "divde. $rT, $rA, $rB", IIC_IntDivD,
+                      []>, isDOT, PPC970_DGroup_Cracked, PPC970_DGroup_First,
+                      isPPC64, Requires<[HasExtDiv]>;
+def DIVDEU : XOForm_1<31, 393, 0, (outs g8rc:$rT), (ins g8rc:$rA, g8rc:$rB),
+                      "divdeu $rT, $rA, $rB", IIC_IntDivD,
+                      [(set i64:$rT, (int_ppc_divdeu g8rc:$rA, g8rc:$rB))]>,
+                      isPPC64, Requires<[HasExtDiv]>;
+let Defs = [CR0] in
+def DIVDEUo : XOForm_1<31, 393, 0, (outs g8rc:$rT), (ins g8rc:$rA, g8rc:$rB),
+                       "divdeu. $rT, $rA, $rB", IIC_IntDivD,
+                       []>, isDOT, PPC970_DGroup_Cracked, PPC970_DGroup_First,
+                        isPPC64, Requires<[HasExtDiv]>;
 let isCommutable = 1 in
 defm MULLD : XOForm_1r<31, 233, 0, (outs g8rc:$rT), (ins g8rc:$rA, g8rc:$rB),
                        "mulld", "$rT, $rA, $rB", IIC_IntMulHD,

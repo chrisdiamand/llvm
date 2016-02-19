@@ -1,6 +1,6 @@
 (* RUN: cp %s %T/target.ml
- * RUN: %ocamlc -g -warn-error A -package llvm.target -package llvm.all_backends -linkpkg %T/target.ml -o %t
- * RUN: %ocamlopt -g -warn-error A -package llvm.target -package llvm.all_backends -linkpkg %T/target.ml -o %t
+ * RUN: %ocamlc -g -w +A -package llvm.target -package llvm.all_backends -linkpkg %T/target.ml -o %t
+ * RUN: %ocamlopt -g -w +A -package llvm.target -package llvm.all_backends -linkpkg %T/target.ml -o %t
  * RUN: %t %t.bc
  * XFAIL: vg_leak
  *)
@@ -84,7 +84,6 @@ let test_target_machine () =
   assert_equal (TM.triple machine) (Target.default_triple ());
   assert_equal (TM.cpu machine) "";
   assert_equal (TM.features machine) "";
-  ignore (TM.data_layout machine);
   TM.set_verbose_asm true machine;
   let pm = PassManager.create () in
   TM.add_analysis_passes pm machine

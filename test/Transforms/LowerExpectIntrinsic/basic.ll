@@ -1,5 +1,5 @@
 ; RUN: opt -lower-expect -strip-dead-prototypes -S -o - < %s | FileCheck %s
-; RUN: opt -S -passes=lower-expect < %s | opt -strip-dead-prototypes -S | FileCheck %s
+; RUN: opt -S -passes='function(lower-expect),strip-dead-prototypes' < %s | FileCheck %s
 
 ; CHECK-LABEL: @test1(
 define i32 @test1(i32 %x) nounwind uwtable ssp {
@@ -18,7 +18,7 @@ entry:
   br i1 %tobool, label %if.then, label %if.end
 
 if.then:                                          ; preds = %entry
-  %call = call i32 (...)* @f()
+  %call = call i32 (...) @f()
   store i32 %call, i32* %retval
   br label %return
 
@@ -50,7 +50,7 @@ entry:
   br i1 %tobool, label %if.then, label %if.end
 
 if.then:                                          ; preds = %entry
-  %call = call i32 (...)* @f()
+  %call = call i32 (...) @f()
   store i32 %call, i32* %retval
   br label %return
 
@@ -81,7 +81,7 @@ entry:
   br i1 %tobool1, label %if.then, label %if.end
 
 if.then:                                          ; preds = %entry
-  %call = call i32 (...)* @f()
+  %call = call i32 (...) @f()
   store i32 %call, i32* %retval
   br label %return
 
@@ -113,7 +113,7 @@ entry:
   br i1 %tobool2, label %if.then, label %if.end
 
 if.then:                                          ; preds = %entry
-  %call = call i32 (...)* @f()
+  %call = call i32 (...) @f()
   store i32 %call, i32* %retval
   br label %return
 
@@ -143,7 +143,7 @@ entry:
   br i1 %tobool, label %if.then, label %if.end
 
 if.then:                                          ; preds = %entry
-  %call = call i32 (...)* @f()
+  %call = call i32 (...) @f()
   store i32 %call, i32* %retval
   br label %return
 
@@ -231,7 +231,7 @@ entry:
   br i1 %tobool, label %if.then, label %if.end
 
 if.then:                                          ; preds = %entry
-  %call = call i32 (...)* @f()
+  %call = call i32 (...) @f()
   store i32 %call, i32* %retval
   br label %return
 
@@ -260,7 +260,7 @@ entry:
   br i1 %expval, label %if.then, label %if.end
 
 if.then:                                          ; preds = %entry
-  %call = call i32 (...)* @f()
+  %call = call i32 (...) @f()
   store i32 %call, i32* %retval
   br label %return
 

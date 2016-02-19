@@ -211,11 +211,8 @@ public:
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.addRequired<LoopInfoWrapperPass>();
-    AU.addRequiredID(LoopSimplifyID);
-    AU.addRequiredID(LCSSAID);
-    AU.addRequired<ScalarEvolution>();
-    AU.addRequired<BranchProbabilityInfo>();
+    AU.addRequired<BranchProbabilityInfoWrapperPass>();
+    getLoopAnalysisUsage(AU);
   }
 
   bool runOnLoop(Loop *L, LPPassManager &LPM) override;
@@ -224,8 +221,12 @@ public:
 char InductiveRangeCheckElimination::ID = 0;
 }
 
-INITIALIZE_PASS(InductiveRangeCheckElimination, "irce",
-                "Inductive range check elimination", false, false)
+INITIALIZE_PASS_BEGIN(InductiveRangeCheckElimination, "irce",
+                      "Inductive range check elimination", false, false)
+INITIALIZE_PASS_DEPENDENCY(BranchProbabilityInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(LoopPass)
+INITIALIZE_PASS_END(InductiveRangeCheckElimination, "irce",
+                    "Inductive range check elimination", false, false)
 
 const char *InductiveRangeCheck::rangeCheckKindToStr(
     InductiveRangeCheck::RangeCheckKind RCK) {
@@ -1044,9 +1045,9 @@ LoopConstrainer::RewrittenRangeInfo LoopConstrainer::changeIterationSpaceEnd(
 
   auto BBInsertLocation = std::next(Function::iterator(LS.Latch));
   RRI.ExitSelector = BasicBlock::Create(Ctx, Twine(LS.Tag) + ".exit.selector",
-                                        &F, BBInsertLocation);
+                                        &F, &*BBInsertLocation);
   RRI.PseudoExit = BasicBlock::Create(Ctx, Twine(LS.Tag) + ".pseudo.exit", &F,
-                                      BBInsertLocation);
+                                      &*BBInsertLocation);
 
   BranchInst *PreheaderJump = cast<BranchInst>(&*Preheader->rbegin());
   bool Increasing = LS.IndVarIncreasing;
@@ -1399,8 +1400,9 @@ bool InductiveRangeCheckElimination::runOnLoop(Loop *L, LPPassManager &LPM) {
   LLVMContext &Context = Preheader->getContext();
   InductiveRangeCheck::AllocatorTy IRCAlloc;
   SmallVector<InductiveRangeCheck *, 16> RangeChecks;
-  ScalarEvolution &SE = getAnalysis<ScalarEvolution>();
-  BranchProbabilityInfo &BPI = getAnalysis<BranchProbabilityInfo>();
+  ScalarEvolution &SE = getAnalysis<ScalarEvolutionWrapperPass>().getSE();
+  BranchProbabilityInfo &BPI =
+      getAnalysis<BranchProbabilityInfoWrapperPass>().getBPI();
 
   for (auto BBI : L->getBlocks())
     if (BranchInst *TBI = dyn_cast<BranchInst>(BBI->getTerminator()))

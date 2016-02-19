@@ -11,6 +11,7 @@
 #define LLVM_MC_MCASMBACKEND_H
 
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/MC/MCDirectives.h"
 #include "llvm/MC/MCDwarf.h"
 #include "llvm/MC/MCFixup.h"
@@ -48,7 +49,7 @@ public:
 
   /// Create a new MCObjectWriter instance for use by the assembler backend to
   /// emit the final object file.
-  virtual MCObjectWriter *createObjectWriter(raw_ostream &OS) const = 0;
+  virtual MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const = 0;
 
   /// Create a new ELFObjectTargetWriter to enable non-standard
   /// ELFObjectWriters.
@@ -61,11 +62,14 @@ public:
   /// region directives will be ignored.
   bool hasDataInCodeSupport() const { return HasDataInCodeSupport; }
 
-  /// @name Target Fixup Interfaces
+  /// \name Target Fixup Interfaces
   /// @{
 
   /// Get the number of target specific fixup kinds.
   virtual unsigned getNumFixupKinds() const = 0;
+
+  /// Map a relocation name used in .reloc to a fixup kind.
+  virtual Optional<MCFixupKind> getFixupKind(StringRef Name) const;
 
   /// Get information on a fixup kind.
   virtual const MCFixupKindInfo &getFixupKindInfo(MCFixupKind Kind) const;
@@ -87,7 +91,7 @@ public:
 
   /// @}
 
-  /// @name Target Relaxation Interfaces
+  /// \name Target Relaxation Interfaces
   /// @{
 
   /// Check whether the given instruction may need relaxation.
@@ -97,6 +101,12 @@ public:
 
   /// Target specific predicate for whether a given fixup requires the
   /// associated instruction to be relaxed.
+  virtual bool fixupNeedsRelaxationAdvanced(const MCFixup &Fixup, bool Resolved,
+                                            uint64_t Value,
+                                            const MCRelaxableFragment *DF,
+                                            const MCAsmLayout &Layout) const;
+
+  /// Simple predicate for targets where !Resolved implies requiring relaxation
   virtual bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value,
                                     const MCRelaxableFragment *DF,
                                     const MCAsmLayout &Layout) const = 0;

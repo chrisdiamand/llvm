@@ -13,6 +13,9 @@
 
 let TargetPrefix = "aarch64" in {
 
+def int_aarch64_thread_pointer : GCCBuiltin<"__builtin_thread_pointer">,
+            Intrinsic<[llvm_ptr_ty], [], [IntrNoMem]>;
+
 def int_aarch64_ldxr : Intrinsic<[llvm_i64_ty], [llvm_anyptr_ty]>;
 def int_aarch64_ldaxr : Intrinsic<[llvm_i64_ty], [llvm_anyptr_ty]>;
 def int_aarch64_stxr : Intrinsic<[llvm_i32_ty], [llvm_i64_ty, llvm_anyptr_ty]>;
@@ -156,7 +159,7 @@ let TargetPrefix = "aarch64" in {  // All intrinsics start with "llvm.aarch64.".
 
 // Arithmetic ops
 
-let Properties = [IntrNoMem] in {
+let IntrProperties = [IntrNoMem] in {
   // Vector Add Across Lanes
   def int_aarch64_neon_saddv : AdvSIMD_1VectorArg_Int_Across_Intrinsic;
   def int_aarch64_neon_uaddv : AdvSIMD_1VectorArg_Int_Across_Intrinsic;
@@ -209,7 +212,7 @@ let Properties = [IntrNoMem] in {
 
   // Vector Extending Multiply
   def int_aarch64_neon_fmulx : AdvSIMD_2FloatArg_Intrinsic {
-    let Properties = [IntrNoMem, Commutative];
+    let IntrProperties = [IntrNoMem, Commutative];
   }
 
   // Vector Saturating Doubling Long Multiply

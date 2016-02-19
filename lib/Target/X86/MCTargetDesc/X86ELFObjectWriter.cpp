@@ -9,6 +9,7 @@
 
 #include "MCTargetDesc/X86FixupKinds.h"
 #include "MCTargetDesc/X86MCTargetDesc.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCValue.h"
@@ -22,18 +23,21 @@ namespace {
   public:
     X86ELFObjectWriter(bool IsELF64, uint8_t OSABI, uint16_t EMachine);
 
-    virtual ~X86ELFObjectWriter();
+    ~X86ELFObjectWriter() override;
+
   protected:
-    unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
-                          bool IsPCRel) const override;
+    unsigned getRelocType(MCContext &Ctx, const MCValue &Target,
+                          const MCFixup &Fixup, bool IsPCRel) const override;
   };
 }
 
 X86ELFObjectWriter::X86ELFObjectWriter(bool IsELF64, uint8_t OSABI,
                                        uint16_t EMachine)
-  : MCELFObjectTargetWriter(IsELF64, OSABI, EMachine,
-                            // Only i386 uses Rel instead of RelA.
-                            /*HasRelocationAddend*/ EMachine != ELF::EM_386) {}
+    : MCELFObjectTargetWriter(IsELF64, OSABI, EMachine,
+                              // Only i386 and IAMCU use Rel instead of RelA.
+                              /*HasRelocationAddend*/
+                              (EMachine != ELF::EM_386) &&
+                                  (EMachine != ELF::EM_IAMCU)) {}
 
 X86ELFObjectWriter::~X86ELFObjectWriter()
 {}
@@ -65,6 +69,7 @@ static X86_64RelType getType64(unsigned Kind,
   case X86::reloc_riprel_4byte:
   case X86::reloc_riprel_4byte_movq_load:
     return RT64_32;
+  case FK_PCRel_2:
   case FK_Data_2:
     return RT64_16;
   case FK_PCRel_1:
@@ -73,7 +78,14 @@ static X86_64RelType getType64(unsigned Kind,
   }
 }
 
-static unsigned getRelocType64(MCSymbolRefExpr::VariantKind Modifier,
+static void checkIs32(MCContext &Ctx, SMLoc Loc, X86_64RelType Type) {
+  if (Type != RT64_32)
+    Ctx.reportError(Loc,
+                    "32 bit reloc applied to a field with a different size");
+}
+
+static unsigned getRelocType64(MCContext &Ctx, SMLoc Loc,
+                               MCSymbolRefExpr::VariantKind Modifier,
                                X86_64RelType Type, bool IsPCRel) {
   switch (Modifier) {
   default:
@@ -143,19 +155,19 @@ static unsigned getRelocType64(MCSymbolRefExpr::VariantKind Modifier,
       llvm_unreachable("Unimplemented");
     }
   case MCSymbolRefExpr::VK_TLSGD:
-    assert(Type == RT64_32);
+    checkIs32(Ctx, Loc, Type);
     return ELF::R_X86_64_TLSGD;
   case MCSymbolRefExpr::VK_GOTTPOFF:
-    assert(Type == RT64_32);
+    checkIs32(Ctx, Loc, Type);
     return ELF::R_X86_64_GOTTPOFF;
   case MCSymbolRefExpr::VK_TLSLD:
-    assert(Type == RT64_32);
+    checkIs32(Ctx, Loc, Type);
     return ELF::R_X86_64_TLSLD;
   case MCSymbolRefExpr::VK_PLT:
-    assert(Type == RT64_32);
+    checkIs32(Ctx, Loc, Type);
     return ELF::R_X86_64_PLT32;
   case MCSymbolRefExpr::VK_GOTPCREL:
-    assert(Type == RT64_32);
+    checkIs32(Ctx, Loc, Type);
     return ELF::R_X86_64_GOTPCREL;
   }
 }
@@ -236,21 +248,21 @@ static unsigned getRelocType32(MCSymbolRefExpr::VariantKind Modifier,
   }
 }
 
-unsigned X86ELFObjectWriter::GetRelocType(const MCValue &Target,
+unsigned X86ELFObjectWriter::getRelocType(MCContext &Ctx, const MCValue &Target,
                                           const MCFixup &Fixup,
                                           bool IsPCRel) const {
   MCSymbolRefExpr::VariantKind Modifier = Target.getAccessVariant();
   X86_64RelType Type = getType64(Fixup.getKind(), Modifier, IsPCRel);
   if (getEMachine() == ELF::EM_X86_64)
-    return getRelocType64(Modifier, Type, IsPCRel);
+    return getRelocType64(Ctx, Fixup.getLoc(), Modifier, Type, IsPCRel);
 
-  assert(getEMachine() == ELF::EM_386 && "Unsupported ELF machine type.");
+  assert((getEMachine() == ELF::EM_386 || getEMachine() == ELF::EM_IAMCU) &&
+         "Unsupported ELF machine type.");
   return getRelocType32(Modifier, getType32(Type), IsPCRel);
 }
 
-MCObjectWriter *llvm::createX86ELFObjectWriter(raw_ostream &OS,
-                                               bool IsELF64,
-                                               uint8_t OSABI,
+MCObjectWriter *llvm::createX86ELFObjectWriter(raw_pwrite_stream &OS,
+                                               bool IsELF64, uint8_t OSABI,
                                                uint16_t EMachine) {
   MCELFObjectTargetWriter *MOTW =
     new X86ELFObjectWriter(IsELF64, OSABI, EMachine);

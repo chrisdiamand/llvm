@@ -1,13 +1,13 @@
 ======================
-LLVM 3.7 Release Notes
+LLVM 3.9 Release Notes
 ======================
 
 .. contents::
     :local:
 
 .. warning::
-   These are in-progress notes for the upcoming LLVM 3.7 release.  You may
-   prefer the `LLVM 3.6 Release Notes <http://llvm.org/releases/3.6.0/docs
+   These are in-progress notes for the upcoming LLVM 3.9 release.  You may
+   prefer the `LLVM 3.7 Release Notes <http://llvm.org/releases/3.7.0/docs
    /ReleaseNotes.html>`_.
 
 
@@ -15,7 +15,7 @@ Introduction
 ============
 
 This document contains the release notes for the LLVM Compiler Infrastructure,
-release 3.7.  Here we describe the status of LLVM, including major improvements
+release 3.9.  Here we describe the status of LLVM, including major improvements
 from the previous release, improvements in various subprojects of LLVM, and
 some of the current users of the code.  All LLVM releases may be downloaded
 from the `LLVM releases web site <http://llvm.org/releases/>`_.
@@ -23,7 +23,7 @@ from the `LLVM releases web site <http://llvm.org/releases/>`_.
 For more information about LLVM, including information about the latest
 release, please check out the `main LLVM web site <http://llvm.org/>`_.  If you
 have questions or comments, the `LLVM Developer's Mailing List
-<http://lists.cs.uiuc.edu/mailman/listinfo/llvmdev>`_ is a good place to send
+<http://lists.llvm.org/mailman/listinfo/llvm-dev>`_ is a good place to send
 them.
 
 Note that if you are reading this file from a Subversion checkout or the main
@@ -33,6 +33,19 @@ page <http://llvm.org/releases/>`_.
 
 Non-comprehensive list of changes in this release
 =================================================
+* .. note about autoconf build having been removed.
+
+* .. note about C API functions LLVMParseBitcode,
+   LLVMParseBitcodeInContext, LLVMGetBitcodeModuleInContext and
+   LLVMGetBitcodeModule having been removed. LLVMGetTargetMachineData has been
+   removed (use LLVMGetDataLayout instead).
+
+* The C API function LLVMLinkModules has been removed.
+
+* The C API function LLVMAddTargetData has been removed.
+
+* The C API function LLVMGetDataLayout is deprecated
+  in favor of LLVMGetDataLayoutStr.
 
 .. NOTE
    For small 1-3 sentence descriptions, just add an entry at the end of
@@ -40,18 +53,6 @@ Non-comprehensive list of changes in this release
    point (e.g. maybe you would like to give an example of the
    functionality, or simply have a lot to talk about), see the `NOTE` below
    for adding a new subsection.
-
-* The minimum required Visual Studio version for building LLVM is now 2013
-  Update 4.
-
-* A new documentation page, :doc:`Frontend/PerformanceTips`, contains a
-  collection of tips for frontend authors on how to generate IR which LLVM is
-  able to effectively optimize.
-
-* The DataLayout is no longer optional. All the IR level optimizations expects
-  it to be present and the API has been changed to use a reference instead of
-  a pointer to make it explicit. The Module owns the datalayout and it has to
-  match the one attached to the TargetMachine for generating code.
 
 * ... next change ...
 
@@ -83,18 +84,35 @@ Changes to the PowerPC Target
  During this release ...
 
 
+Changes to the X86 Target
+-----------------------------
+
+ During this release ...
+
+Changes to the AMDGPU Target
+-----------------------------
+
+ * Mesa 11.0.x is no longer supported
+
+
 Changes to the OCaml bindings
 -----------------------------
 
  During this release ...
 
+Support for attribute 'notail' has been added
+---------------------------------------------
 
-External Open Source Projects Using LLVM 3.7
+This marker prevents optimization passes from adding 'tail' or
+'musttail' markers to a call. It is used to prevent tail call
+optimization from being performed on the call.
+
+External Open Source Projects Using LLVM 3.9
 ============================================
 
 An exciting aspect of LLVM is that it is used as an enabling technology for
 a lot of other language and tools projects. This section lists some of the
-projects that have already been updated to work with LLVM 3.7.
+projects that have already been updated to work with LLVM 3.9.
 
 * A project
 

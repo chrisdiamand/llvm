@@ -26,11 +26,11 @@ class AArch64ELFObjectWriter : public MCELFObjectTargetWriter {
 public:
   AArch64ELFObjectWriter(uint8_t OSABI, bool IsLittleEndian);
 
-  virtual ~AArch64ELFObjectWriter();
+  ~AArch64ELFObjectWriter() override;
 
 protected:
-  unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
-                        bool IsPCRel) const override;
+  unsigned getRelocType(MCContext &Ctx, const MCValue &Target,
+                        const MCFixup &Fixup, bool IsPCRel) const override;
 
 private:
 };
@@ -43,9 +43,10 @@ AArch64ELFObjectWriter::AArch64ELFObjectWriter(uint8_t OSABI,
 
 AArch64ELFObjectWriter::~AArch64ELFObjectWriter() {}
 
-unsigned AArch64ELFObjectWriter::GetRelocType(const MCValue &Target,
-                                            const MCFixup &Fixup,
-                                            bool IsPCRel) const {
+unsigned AArch64ELFObjectWriter::getRelocType(MCContext &Ctx,
+                                              const MCValue &Target,
+                                              const MCFixup &Fixup,
+                                              bool IsPCRel) const {
   AArch64MCExpr::VariantKind RefKind =
       static_cast<AArch64MCExpr::VariantKind>(Target.getRefKind());
   AArch64MCExpr::VariantKind SymLoc = AArch64MCExpr::getSymbolLoc(RefKind);
@@ -248,9 +249,9 @@ unsigned AArch64ELFObjectWriter::GetRelocType(const MCValue &Target,
   llvm_unreachable("Unimplemented fixup -> relocation");
 }
 
-MCObjectWriter *llvm::createAArch64ELFObjectWriter(raw_ostream &OS,
-                                                 uint8_t OSABI,
-                                                 bool IsLittleEndian) {
+MCObjectWriter *llvm::createAArch64ELFObjectWriter(raw_pwrite_stream &OS,
+                                                   uint8_t OSABI,
+                                                   bool IsLittleEndian) {
   MCELFObjectTargetWriter *MOTW =
       new AArch64ELFObjectWriter(OSABI, IsLittleEndian);
   return createELFObjectWriter(MOTW, OS, IsLittleEndian);

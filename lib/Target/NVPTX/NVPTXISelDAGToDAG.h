@@ -21,9 +21,8 @@
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/Support/Compiler.h"
-using namespace llvm;
 
-namespace {
+namespace llvm {
 
 class LLVM_LIBRARY_VISIBILITY NVPTXDAGToDAGISel : public SelectionDAGISel {
   const NVPTXTargetMachine &TM;
@@ -71,8 +70,8 @@ private:
   SDNode *SelectSurfaceIntrinsic(SDNode *N);
   SDNode *SelectBFE(SDNode *N);
         
-  inline SDValue getI32Imm(unsigned Imm) {
-    return CurDAG->getTargetConstant(Imm, MVT::i32);
+  inline SDValue getI32Imm(unsigned Imm, SDLoc DL) {
+    return CurDAG->getTargetConstant(Imm, DL, MVT::i32);
   }
 
   // Match direct address complex pattern.
@@ -95,6 +94,6 @@ private:
   bool ChkMemSDNodeAddressSpace(SDNode *N, unsigned int spN) const;
 
 };
-}
+} // end namespace llvm
 
 #endif

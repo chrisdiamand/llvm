@@ -490,23 +490,7 @@ APInt APInt::operator-(const APInt& RHS) const {
 }
 
 bool APInt::EqualSlowCase(const APInt& RHS) const {
-  // Get some facts about the number of bits used in the two operands.
-  unsigned n1 = getActiveBits();
-  unsigned n2 = RHS.getActiveBits();
-
-  // If the number of bits isn't the same, they aren't equal
-  if (n1 != n2)
-    return false;
-
-  // If the number of bits fits in a word, we only need to compare the low word.
-  if (n1 <= APINT_BITS_PER_WORD)
-    return pVal[0] == RHS.pVal[0];
-
-  // Otherwise, compare everything
-  for (int i = whichWord(n1 - 1); i >= 0; --i)
-    if (pVal[i] != RHS.pVal[i])
-      return false;
-  return true;
+  return std::equal(pVal, pVal + getNumWords(), RHS.pVal);
 }
 
 bool APInt::EqualSlowCase(uint64_t Val) const {
@@ -692,30 +676,19 @@ APInt APInt::getLoBits(unsigned numBits) const {
 }
 
 unsigned APInt::countLeadingZerosSlowCase() const {
-  // Treat the most significand word differently because it might have
-  // meaningless bits set beyond the precision.
-  unsigned BitsInMSW = BitWidth % APINT_BITS_PER_WORD;
-  integerPart MSWMask;
-  if (BitsInMSW) MSWMask = (integerPart(1) << BitsInMSW) - 1;
-  else {
-    MSWMask = ~integerPart(0);
-    BitsInMSW = APINT_BITS_PER_WORD;
-  }
-
-  unsigned i = getNumWords();
-  integerPart MSW = pVal[i-1] & MSWMask;
-  if (MSW)
-    return llvm::countLeadingZeros(MSW) - (APINT_BITS_PER_WORD - BitsInMSW);
-
-  unsigned Count = BitsInMSW;
-  for (--i; i > 0u; --i) {
-    if (pVal[i-1] == 0)
+  unsigned Count = 0;
+  for (int i = getNumWords()-1; i >= 0; --i) {
+    integerPart V = pVal[i];
+    if (V == 0)
       Count += APINT_BITS_PER_WORD;
     else {
-      Count += llvm::countLeadingZeros(pVal[i-1]);
+      Count += llvm::countLeadingZeros(V);
       break;
     }
   }
+  // Adjust for unused bits in the most significant word (they are zero).
+  unsigned Mod = BitWidth % APINT_BITS_PER_WORD;
+  Count -= Mod > 0 ? APINT_BITS_PER_WORD - Mod : 0;
   return Count;
 }
 
@@ -1586,28 +1559,18 @@ static void KnuthDiv(unsigned *u, unsigned *v, unsigned *q, unsigned* r,
     // this step is actually negative, (u[j+n]...u[j]) should be left as the
     // true value plus b**(n+1), namely as the b's complement of
     // the true value, and a "borrow" to the left should be remembered.
-    bool isNeg = false;
+    int64_t borrow = 0;
     for (unsigned i = 0; i < n; ++i) {
-      uint64_t u_tmp = (uint64_t(u[j+i+1]) << 32) | uint64_t(u[j+i]);
-      uint64_t subtrahend = uint64_t(qp) * uint64_t(v[i]);
-      bool borrow = subtrahend > u_tmp;
-      DEBUG(dbgs() << "KnuthDiv: u_tmp = " << u_tmp
-                   << ", subtrahend = " << subtrahend
+      uint64_t p = uint64_t(qp) * uint64_t(v[i]);
+      int64_t subres = int64_t(u[j+i]) - borrow - (unsigned)p;
+      u[j+i] = (unsigned)subres;
+      borrow = (p >> 32) - (subres >> 32);
+      DEBUG(dbgs() << "KnuthDiv: u[j+i] = " << u[j+i]
                    << ", borrow = " << borrow << '\n');
-
-      uint64_t result = u_tmp - subtrahend;
-      unsigned k = j + i;
-      u[k++] = (unsigned)result;         // subtraction low word
-      u[k++] = (unsigned)(result >> 32); // subtraction high word
-      while (borrow && k <= m+n) {       // deal with borrow to the left
-        borrow = u[k] == 0;
-        u[k]--;
-        k++;
-      }
-      isNeg |= borrow;
-      DEBUG(dbgs() << "KnuthDiv: u[j+i] = " << u[j+i] 
-                   << ", u[j+i+1] = " << u[j+i+1] << '\n');
     }
+    bool isNeg = u[j+n] < borrow;
+    u[j+n] -= (unsigned)borrow;
+
     DEBUG(dbgs() << "KnuthDiv: after subtraction:");
     DEBUG(for (int i = m+n; i >=0; i--) dbgs() << " " << u[i]);
     DEBUG(dbgs() << '\n');
@@ -2278,7 +2241,7 @@ std::string APInt::toString(unsigned Radix = 10, bool Signed = true) const {
 }
 
 
-void APInt::dump() const {
+LLVM_DUMP_METHOD void APInt::dump() const {
   SmallString<40> S, U;
   this->toStringUnsigned(U);
   this->toStringSigned(S);
@@ -2735,8 +2698,10 @@ APInt::tcDivide(integerPart *lhs, const integerPart *rhs,
         break;
       shiftCount--;
       tcShiftRight(srhs, parts, 1);
-      if ((mask >>= 1) == 0)
-        mask = (integerPart) 1 << (integerPartWidth - 1), n--;
+      if ((mask >>= 1) == 0) {
+        mask = (integerPart) 1 << (integerPartWidth - 1);
+        n--;
+      }
   }
 
   return false;

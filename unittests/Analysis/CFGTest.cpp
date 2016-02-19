@@ -78,13 +78,13 @@ protected:
         return 0;
       }
 
-      void getAnalysisUsage(AnalysisUsage &AU) const {
+      void getAnalysisUsage(AnalysisUsage &AU) const override {
         AU.setPreservesAll();
         AU.addRequired<LoopInfoWrapperPass>();
         AU.addRequired<DominatorTreeWrapperPass>();
       }
 
-      bool runOnFunction(Function &F) {
+      bool runOnFunction(Function &F) override {
         if (!F.hasName() || F.getName() != "test")
           return false;
 
@@ -378,7 +378,7 @@ TEST_F(IsPotentiallyReachableTest, BranchInsideLoop) {
 TEST_F(IsPotentiallyReachableTest, ModifyTest) {
   ParseAssembly(BranchInsideLoopIR);
 
-  succ_iterator S = succ_begin(++M->getFunction("test")->begin());
+  succ_iterator S = succ_begin(&*++M->getFunction("test")->begin());
   BasicBlock *OldBB = S[0];
   S[0] = S[1];
   ExpectPath(false);

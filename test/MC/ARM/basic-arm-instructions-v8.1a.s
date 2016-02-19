@@ -37,7 +37,7 @@
 //CHECK-V8:   vqrdmlsh.f32  q3, q4, q5
 //CHECK-V8:           ^
 //CHECK-V8: error: invalid operand for instruction
-//CHECK-V8   vqrdmlsh.f64  d3, d5, d5
+//CHECK-V8:  vqrdmlsh.f64  d3, d5, d5
 //CHECK-V8:           ^
 
   vqrdmlah.s16    d0, d1, d2
@@ -172,3 +172,35 @@
 //CHECK-V8: error: instruction requires: armv8.1a
 //CHECK-V8:  vqrdmlsh.s32  q0, q1, d2[0]
 //CHECK-V8:  ^
+
+  setpan  #0
+//CHECK-V81aTHUMB:  setpan  #0                @       encoding: [0x10,0xb6]
+//CHECK-V81aARM:    setpan  #0                @       encoding: [0x00,0x00,0x10,0xf1]
+//CHECK-V8: error: instruction requires: armv8.1a
+//CHECK-V8:  setpan  #0
+//CHECK-V8:  ^
+
+  setpan  #1
+//CHECK-V81aTHUMB:  setpan  #1                @       encoding: [0x18,0xb6]
+//CHECK-V81aARM:    setpan  #1                @       encoding: [0x00,0x02,0x10,0xf1]
+//CHECK-V8: error: instruction requires: armv8.1a
+//CHECK-V8:  setpan  #1
+//CHECK-V8:  ^
+  setpan
+  setpan #-1
+  setpan #2
+//CHECK-ERROR: error: too few operands for instruction
+//CHECK-ERROR:  setpan
+//CHECK-ERROR:  ^
+//CHECK-ERROR: error: invalid operand for instruction
+//CHECK-ERROR:  setpan #-1
+//CHECK-ERROR:         ^
+//CHECK-ERROR: error: invalid operand for instruction
+//CHECK-ERROR:  setpan #2
+//CHECK-ERROR:         ^
+
+  it eq
+  setpaneq #0
+//CHECK-THUMB-ERROR: error: instruction 'setpan' is not predicable, but condition code specified
+//CHECK-THUMB-ERROR:  setpaneq #0
+//CHECK-THUMB-ERROR:  ^

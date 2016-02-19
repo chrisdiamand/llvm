@@ -4,7 +4,7 @@
 ; RUN: -enable-mips-tail-calls < %s | FileCheck %s -check-prefix=STATIC32
 ; RUN: llc -march=mips64el -mcpu=mips64r2 -mattr=+n64 -enable-mips-tail-calls \
 ; RUN: < %s | FileCheck %s -check-prefix=N64
-; RUN: llc -march=mipsel -mcpu=mips16 -relocation-model=pic \
+; RUN: llc -march=mipsel -mattr=mips16 -relocation-model=pic \
 ; RUN: -enable-mips-tail-calls < %s | FileCheck %s -check-prefix=PIC16
 
 @g0 = common global i32 0, align 4
@@ -136,7 +136,7 @@ entry:
 ; PIC16: jalrc
 ; PIC16: .end caller8_1
 
-  %call = tail call i32 (i32, ...)* @callee8(i32 2, i32 1) nounwind
+  %call = tail call i32 (i32, ...) @callee8(i32 2, i32 1) nounwind
   ret i32 %call
 }
 
@@ -239,7 +239,7 @@ entry:
 ; PIC16: .ent caller13
 ; PIC16: jalrc
 
-  %call = tail call i32 (i32, ...)* @callee13(i32 1, i32 2) nounwind
+  %call = tail call i32 (i32, ...) @callee13(i32 1, i32 2) nounwind
   ret i32 %call
 }
 

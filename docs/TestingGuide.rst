@@ -99,19 +99,11 @@ is in the ``test-suite`` module. See :ref:`test-suite Quickstart
 Regression tests
 ----------------
 
-To run all of the LLVM regression tests, use the master Makefile in the
-``llvm/test`` directory. LLVM Makefiles require GNU Make (read the :doc:`LLVM
-Makefile Guide <MakefileGuide>` for more details):
+To run all of the LLVM regression tests use the check-llvm target:
 
 .. code-block:: bash
 
-    % make -C llvm/test
-
-or:
-
-.. code-block:: bash
-
-    % make check
+    % make check-llvm
 
 If you have `Clang <http://clang.llvm.org/>`_ checked out and built, you
 can run the LLVM and Clang tests simultaneously using:
@@ -239,6 +231,10 @@ using them only to run tools that generate textual output you can then examine.
 The recommended way to examine output to figure out if the test passes is using
 the :doc:`FileCheck tool <CommandGuide/FileCheck>`. *[The usage of grep in RUN
 lines is deprecated - please do not send or commit patches that use it.]*
+
+Put related tests into a single file rather than having a separate file per
+test. Check if there are files already covering your feature and consider
+adding your code there instead of creating a new file.
 
 Extra files
 -----------
@@ -471,6 +467,25 @@ RUN lines:
    constraining it to a specific triple.
 
 To add more substituations, look at ``test/lit.cfg`` or ``lit.local.cfg``.
+
+
+Options
+-------
+
+The llvm lit configuration allows to customize some things with user options:
+
+``llc``, ``opt``, ...
+    Substitute the respective llvm tool name with a custom command line. This
+    allows to specify custom paths and default arguments for these tools.
+    Example:
+
+    % llvm-lit "-Dllc=llc -verify-machineinstrs"
+
+``run_long_tests``
+    Enable the execution of long running tests.
+
+``llvm_site_config``
+    Load the specified lit configuration instead of the default one.
 
 
 Other Features
