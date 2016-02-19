@@ -19,4 +19,4 @@
 type = Library
 name = AllocSites
 parent = Transforms
-required_libraries = Analysis Core TransformUtils
+required_libraries = Analysis Core Support TransformUtils
