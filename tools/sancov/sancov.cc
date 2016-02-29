@@ -59,6 +59,7 @@ namespace {
 
 enum ActionType {
   PrintAction,
+  PrintCovPointsAction,
   CoveredFunctionsAction,
   NotCoveredFunctionsAction,
   HtmlReportAction
@@ -67,6 +68,8 @@ enum ActionType {
 cl::opt<ActionType> Action(
     cl::desc("Action (required)"), cl::Required,
     cl::values(clEnumValN(PrintAction, "print", "Print coverage addresses"),
+               clEnumValN(PrintCovPointsAction, "print-coverage-pcs",
+                          "Print coverage instrumentation points addresses."),
                clEnumValN(CoveredFunctionsAction, "covered-functions",
                           "Print all covered funcions."),
                clEnumValN(NotCoveredFunctionsAction, "not-covered-functions",
@@ -364,7 +367,7 @@ static void getObjectCoveragePoints(const object::ObjectFile &O,
   if (SanCovAddrs.empty())
     Fail("__sanitizer_cov* functions not found");
 
-  for (const auto Section : O.sections()) {
+  for (object::SectionRef Section : O.sections()) {
     if (Section.isVirtual() || !Section.isText()) // llvm-objdump does the same.
       continue;
     uint64_t SectionAddr = Section.getAddress();
@@ -447,6 +450,14 @@ std::set<uint64_t> getCoveragePoints(std::string FileName) {
     getObjectCoveragePoints(O, &Result);
   });
   return Result;
+}
+
+static void printCovPoints(std::string ObjFile, raw_ostream &OS) {
+  for (uint64_t Addr : getCoveragePoints(ObjFile)) {
+    OS << "0x";
+    OS.write_hex(Addr);
+    OS << "\n";
+  }
 }
 
 static std::string escapeHtml(const std::string &S) {
@@ -721,7 +732,8 @@ public:
       if (!ProcessedFunctions.insert(FunctionName).second)
         continue;
 
-      Result[FileLoc{FileName, Loc.Loc.Line}].insert(FunctionName);
+      auto FLoc = FileLoc{FileName, Loc.Loc.Line};
+      Result[FLoc].insert(FunctionName);
     }
     return Result;
   }
@@ -795,15 +807,20 @@ public:
 
     // TOC
 
+    size_t NotCoveredFilesCount = 0;
+    std::set<std::string> Files = SCovData.files();
+
     // Covered Files.
-    OS << "<details open><summary>Covered Files</summary>\n";
+    OS << "<details open><summary>Touched Files</summary>\n";
     OS << "<table>\n";
     OS << "<tr><th>File</th><th>Hit Fns %</th>";
     OS << "<th>Hit (Total) Fns</th></tr>\n";
-    for (auto FileName : SCovData.files()) {
+    for (auto FileName : Files) {
       std::pair<size_t, size_t> FC = FileFnCoverage[FileName];
-      if (FC.first == 0)
+      if (FC.first == 0) {
+        NotCoveredFilesCount++;
         continue;
+      }
       size_t CovPct = FC.second == 0 ? 100 : 100 * FC.first / FC.second;
 
       OS << "<tr><td><a href=\"#" << escapeHtml(FileName) << "\">"
@@ -816,18 +833,22 @@ public:
     OS << "</details>\n";
 
     // Not covered files.
-    OS << "<details><summary>Not Covered Files</summary>\n";
-    OS << "<table>\n";
-    for (auto FileName : SCovData.files()) {
-      std::pair<size_t, size_t> FC = FileFnCoverage[FileName];
-      if (FC.first == 0)
-        OS << "<tr><td>" << stripPathPrefix(FileName) << "</td>\n";
+    if (NotCoveredFilesCount) {
+      OS << "<details><summary>Not Touched Files</summary>\n";
+      OS << "<table>\n";
+      for (auto FileName : Files) {
+        std::pair<size_t, size_t> FC = FileFnCoverage[FileName];
+        if (FC.first == 0)
+          OS << "<tr><td>" << stripPathPrefix(FileName) << "</td>\n";
+      }
+      OS << "</table>\n";
+      OS << "</details>\n";
+    } else {
+      OS << "<p>Congratulations! All source files are touched.</p>\n";
     }
-    OS << "</table>\n";
-    OS << "</details>\n";
 
     // Source
-    for (auto FileName : SCovData.files()) {
+    for (auto FileName : Files) {
       std::pair<size_t, size_t> FC = FileFnCoverage[FileName];
       if (FC.first == 0)
         continue;
@@ -841,7 +862,7 @@ public:
         for (auto FileFn : NotCoveredFns->second) {
           OS << "<tr><td>";
           OS << "<a href=\"#"
-             << escapeHtml(FileName + ":: " + FileFn.FunctionName) << "\">";
+             << escapeHtml(FileName + "::" + FileFn.FunctionName) << "\">";
           OS << escapeHtml(FileFn.FunctionName) << "</a>";
           OS << "</td></tr>\n";
         }
@@ -867,7 +888,7 @@ public:
           auto It = NotCoveredFnByLoc.find(Loc);
           if (It != NotCoveredFnByLoc.end()) {
             for (std::string Fn : It->second) {
-              OS << "<a name=\"" << escapeHtml(FileName + ":: " + Fn)
+              OS << "<a name=\"" << escapeHtml(FileName + "::" + Fn)
                  << "\"></a>";
             };
           }
@@ -992,7 +1013,7 @@ public:
   }
 
   void printReport(raw_ostream &OS) const {
-    std::string Title = stripPathPrefix(MainObjFile) + " Coverage Report";
+    auto Title = llvm::sys::path::filename(MainObjFile) + " Coverage Report";
 
     OS << "<html>\n";
     OS << "<head>\n";
@@ -1001,6 +1022,7 @@ public:
     OS << "<style>\n";
     OS << ".covered { background: #7F7; }\n";
     OS << ".notcovered { background: #F77; }\n";
+    OS << ".mixed { background: #FF7; }\n";
     OS << "summary { font-weight: bold; }\n";
     OS << "details > summary + * { margin-left: 1em; }\n";
     OS << "</style>\n";
@@ -1081,6 +1103,12 @@ int main(int argc, char **argv) {
     FailIfError(CovData);
     CovData.get()->printAddrs(outs());
     return 0;
+  } else if (Action == PrintCovPointsAction) {
+    // -print-coverage-points doesn't need coverage files.
+    for (std::string ObjFile : ClInputFiles) {
+      printCovPoints(ObjFile, outs());
+    }
+    return 0;
   }
 
   auto CovDataSet = CoverageDataSet::readCmdArguments(ClInputFiles);
@@ -1104,6 +1132,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   case PrintAction:
+  case PrintCovPointsAction:
     llvm_unreachable("unsupported action");
   }
 }

@@ -1378,12 +1378,11 @@ namespace llvm {
                      SCEVWrapPredicate::IncrementWrapFlags AddedFlags);
 
     /// Re-writes the SCEV according to the Predicates in \p Preds.
-    const SCEV *rewriteUsingPredicate(const SCEV *Scev, const Loop *L,
+    const SCEV *rewriteUsingPredicate(const SCEV *S, const Loop *L,
                                       SCEVUnionPredicate &A);
-    /// Tries to convert the \p Scev expression to an AddRec expression,
+    /// Tries to convert the \p S expression to an AddRec expression,
     /// adding additional predicates to \p Preds as required.
-    const SCEV *convertSCEVToAddRecWithPredicates(const SCEV *Scev,
-                                                  const Loop *L,
+    const SCEV *convertSCEVToAddRecWithPredicates(const SCEV *S, const Loop *L,
                                                   SCEVUnionPredicate &Preds);
 
   private:
@@ -1416,30 +1415,22 @@ namespace llvm {
   };
 
   /// \brief Analysis pass that exposes the \c ScalarEvolution for a function.
-  class ScalarEvolutionAnalysis {
-    static char PassID;
-
-  public:
+  struct ScalarEvolutionAnalysis : AnalysisBase<ScalarEvolutionAnalysis> {
     typedef ScalarEvolution Result;
-
-    /// \brief Opaque, unique identifier for this analysis pass.
-    static void *ID() { return (void *)&PassID; }
-
-    /// \brief Provide a name for the analysis for debugging and logging.
-    static StringRef name() { return "ScalarEvolutionAnalysis"; }
 
     ScalarEvolution run(Function &F, AnalysisManager<Function> *AM);
   };
 
+  extern template class AnalysisBase<ScalarEvolutionAnalysis>;
+
   /// \brief Printer pass for the \c ScalarEvolutionAnalysis results.
-  class ScalarEvolutionPrinterPass {
+  class ScalarEvolutionPrinterPass
+      : public PassBase<ScalarEvolutionPrinterPass> {
     raw_ostream &OS;
 
   public:
     explicit ScalarEvolutionPrinterPass(raw_ostream &OS) : OS(OS) {}
     PreservedAnalyses run(Function &F, AnalysisManager<Function> *AM);
-
-    static StringRef name() { return "ScalarEvolutionPrinterPass"; }
   };
 
   class ScalarEvolutionWrapperPass : public FunctionPass {

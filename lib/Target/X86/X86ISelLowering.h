@@ -554,8 +554,8 @@ namespace llvm {
       VAARG_64
 
       // WARNING: Do not add anything in the end unless you want the node to
-      // have memop! In fact, starting from ATOMADD64_DAG all opcodes will be
-      // thought as target memory ops!
+      // have memop! In fact, starting from FIRST_TARGET_MEMORY_OPCODE all
+      // opcodes will be thought as target memory ops!
     };
   } // end namespace X86ISD
 
@@ -1012,6 +1012,8 @@ namespace llvm {
     unsigned GetAlignedArgumentStackSize(unsigned StackSize,
                                          SelectionDAG &DAG) const;
 
+    unsigned getAddressSpace(void) const;
+
     std::pair<SDValue,SDValue> FP_TO_INTHelper(SDValue Op, SelectionDAG &DAG,
                                                bool isSigned,
                                                bool isReplace) const;
@@ -1137,6 +1139,9 @@ namespace llvm {
 
     MachineBasicBlock *EmitLoweredSegAlloca(MachineInstr *MI,
                                             MachineBasicBlock *BB) const;
+
+    MachineBasicBlock *EmitLoweredTLSAddr(MachineInstr *MI,
+                                          MachineBasicBlock *BB) const;
 
     MachineBasicBlock *EmitLoweredTLSCall(MachineInstr *MI,
                                           MachineBasicBlock *BB) const;
